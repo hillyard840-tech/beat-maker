@@ -49,4 +49,20 @@ class SerializationTest {
         assertTrue(encoded.contains("thought_signature"))
         assertTrue(encoded.contains("cryptographic_token_12345"))
     }
+
+    @Test
+    fun safetyBlockedResponseDecodesWithoutCandidates() {
+        // Gemini omits "candidates" entirely when the prompt itself is blocked.
+        val blocked = json.decodeFromString<GenerateContentResponse>(
+            """{"promptFeedback":{"blockReason":"SAFETY"}}"""
+        )
+        assertTrue(blocked.candidates.isEmpty())
+
+        // ...and omits "content" when a candidate is stopped by the safety filter.
+        val stopped = json.decodeFromString<GenerateContentResponse>(
+            """{"candidates":[{"finishReason":"SAFETY","index":0}]}"""
+        )
+        assertEquals("SAFETY", stopped.candidates.first().finishReason)
+        assertEquals(null, stopped.candidates.first().content)
+    }
 }

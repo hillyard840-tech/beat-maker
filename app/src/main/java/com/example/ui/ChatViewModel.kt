@@ -5,11 +5,9 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.Room
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.example.BuildConfig
 import com.example.api.*
 import com.example.data.*
 import com.example.data.moltbook.*
@@ -18,6 +16,9 @@ import com.example.util.*
 import com.example.worker.LearningWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -62,10 +63,7 @@ enum class AgentOperationalState(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("omni_agent_prefs", Context.MODE_PRIVATE)
 
-    private val db = Room.databaseBuilder(
-        application,
-        AppDatabase::class.java, "chat-database"
-    ).fallbackToDestructiveMigration().build()
+    private val db = AppDatabase.getInstance(application)
 
     private val repository = MessageRepository(db.messageDao(), db.memoryDao(), db.projectDao())
     val skills: StateFlow<List<Skill>> = db.skillDao().getAllSkills().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -229,15 +227,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         AgentOperationalState.IDLE
     )
 
-    fun getEffectiveApiKey(): String {
-        val custom = customApiKey.value.trim()
-        if (custom.isNotEmpty()) return custom
-        val envKey = BuildConfig.GEMINI_API_KEY.trim()
-        if (envKey == "MY_GEMINI_API_KEY" || envKey.isBlank()) {
-            return ""
-        }
-        return envKey
-    }
+    fun getEffectiveApiKey(): String = ApiKeys.resolve(customApiKey.value)
 
     fun updateModel(model: String) {
         selectedModel.value = model
@@ -388,13 +378,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // VOICE NOTE RECORDING (Feature 3)
+    private var voiceNoteTimerJob: Job? = null
+
     fun startVoiceNoteRecording(): Boolean {
-        return voiceNoteRecorder.startRecording { recognizedText ->
-            // live transcript updated
+        val started = voiceNoteRecorder.startRecording()
+        if (started) {
+            // The recorder only exposes a start timestamp; tick the duration shown in the UI.
+            voiceNoteTimerJob?.cancel()
+            voiceNoteTimerJob = viewModelScope.launch {
+                while (isActive && voiceNoteRecorder.isRecording.value) {
+                    voiceNoteRecorder.recordingDurationSec.value = voiceNoteRecorder.elapsedSeconds()
+                    delay(500)
+                }
+            }
         }
+        return started
     }
 
     fun stopVoiceNoteRecording() {
+        voiceNoteTimerJob?.cancel()
         val result = voiceNoteRecorder.stopRecording()
         if (result != null) {
             attachedVoiceNote.value = result
@@ -402,6 +404,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelVoiceNoteRecording() {
+        voiceNoteTimerJob?.cancel()
         voiceNoteRecorder.cancelRecording()
         attachedVoiceNote.value = null
     }
@@ -529,12 +532,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val res = RetrofitClient.service.generateContent(selectedModel.value, apiKey, req)
                 val newText = res.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                 if (!newText.isNullOrBlank()) {
-                    val cleanText = newText
-                        .removePrefix("```${canvasLanguage.value}")
-                        .removePrefix("```")
-                        .removeSuffix("```")
-                        .trim()
-                    canvasContent.value = cleanText
+                    canvasContent.value = stripCodeFence(newText)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -606,16 +604,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
-            val (imagePath, attribution) = ImageGenService.generateImage(context, prompt, apiKey)
-            repository.insert(
-                Message(
-                    role = "model",
-                    text = "✨ Image created for: \"$prompt\"\n*($attribution)*",
-                    imagePath = imagePath,
-                    projectId = currentProject.value?.id
+            try {
+                val (imagePath, attribution) = ImageGenService.generateImage(context, prompt, apiKey)
+                repository.insert(
+                    Message(
+                        role = "model",
+                        text = "✨ Image created for: \"$prompt\"\n*($attribution)*",
+                        imagePath = imagePath,
+                        projectId = currentProject.value?.id
+                    )
                 )
-            )
-            isLoading.value = false
+            } catch (e: Exception) {
+                e.printStackTrace()
+                repository.insert(
+                    Message(
+                        role = "model",
+                        text = "Error: image generation failed (${e.message})",
+                        projectId = currentProject.value?.id
+                    )
+                )
+            } finally {
+                isLoading.value = false
+            }
         }
     }
 
@@ -692,6 +702,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Copies/compresses the picked image off the main thread, then sends the message. */
+    fun sendMessageWithImage(text: String, imageUri: Uri?) {
+        if (imageUri == null) {
+            sendMessage(text, null)
+            return
+        }
+        viewModelScope.launch {
+            val imagePath = ImageUtils.copyUriToInternalStorage(getApplication(), imageUri)
+            if (imagePath == null && text.isBlank()) {
+                repository.insert(
+                    Message(
+                        role = "model",
+                        text = "⚠️ The selected image could not be read. Please try a different image.",
+                        projectId = currentProject.value?.id
+                    )
+                )
+                return@launch
+            }
+            sendMessage(text, imagePath)
+        }
+    }
+
     fun sendMessage(text: String, imagePath: String?) {
         viewModelScope.launch {
             // SeekClaw Rule 1: Owner Privacy Protection check
@@ -731,76 +763,83 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 repository.insert(Message(role = "user", text = text, projectId = currentProject.value?.id))
                 isLoading.value = true
                 liveInternetStatus.value = "Scanning Base L2 contracts..."
+                try {
+                    // 1. Scan Base L2
+                    seekClawRepo.executeClawEarnScan()
+                    val health = seekClawRepo.clawEarnHealth.value
+                    val (occupiedTasks, _) = ClawEarnService.getTasks("occupied")
+                    val occupiedTask = occupiedTasks.firstOrNull()
 
-                // 1. Scan Base L2
-                seekClawRepo.executeClawEarnScan()
-                val health = seekClawRepo.clawEarnHealth.value
-                val (occupiedTasks, _) = ClawEarnService.getTasks("occupied")
-                val occupiedTask = occupiedTasks.firstOrNull()
+                    // 2. Start Bounded Watcher Loop (SKILL.md Section 4)
+                    seekClawRepo.startClawEarnWatcher(
+                        taskId = occupiedTask?.taskId,
+                        contractAddress = occupiedTask?.contractAddress
+                    )
 
-                // 2. Start Bounded Watcher Loop (SKILL.md Section 4)
-                seekClawRepo.startClawEarnWatcher(
-                    taskId = occupiedTask?.taskId,
-                    contractAddress = occupiedTask?.contractAddress
-                )
-
-                // 3. Deliverable synthesis for occupied task if available
-                var deliverableNotice = ""
-                if (occupiedTask != null && occupiedTask.title.contains("MoltBook", ignoreCase = true)) {
-                    val result = seekClawRepo.takeAndExecuteClawTask(occupiedTask) { postContent ->
-                        moltbookRepo.createPost(
-                            submoltName = "general",
-                            title = "Hello MoltBook!!!",
-                            content = "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
-                        )
-                        "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
+                    // 3. Deliverable synthesis for occupied task if available
+                    var deliverableNotice = ""
+                    if (occupiedTask != null && occupiedTask.title.contains("MoltBook", ignoreCase = true)) {
+                        val result = seekClawRepo.takeAndExecuteClawTask(occupiedTask) { postContent ->
+                            moltbookRepo.createPost(
+                                submoltName = "general",
+                                title = "Hello MoltBook!!!",
+                                content = "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
+                            )
+                            "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
+                        }
+                        deliverableNotice = "\n\n🎯 **Autonomous Deliverable Synthesized for Task #${occupiedTask.taskId}:**\n" +
+                            "• **Action Taken:** Published Moltbook post: *\"Hello MoltBook!!!\"*\n" +
+                            "• **Captured Verbatim Output:** Verified exact post text matching buyer acceptance criteria.\n" +
+                            "• **Submission Ready:** Formatted for `POST /agentSubmitWork` with hash verification."
                     }
-                    deliverableNotice = "\n\n🎯 **Autonomous Deliverable Synthesized for Task #${occupiedTask.taskId}:**\n" +
-                        "• **Action Taken:** Published Moltbook post: *\"Hello MoltBook!!!\"*\n" +
-                        "• **Captured Verbatim Output:** Verified exact post text matching buyer acceptance criteria.\n" +
-                        "• **Submission Ready:** Formatted for `POST /agentSubmitWork` with hash verification."
-                }
 
-                val counts = seekClawRepo.clawEarnCounts.value
-                val responseMessage = buildString {
-                    appendLine("🦞 **Claw Earn on Base Network (Chain ID 8453) — Autonomous Execution**")
-                    appendLine()
-                    appendLine("I have read and integrated **`SKILL.md`** (`https://aiagentstore.ai/skills/openclaw/claw-earn/SKILL.md`) and verified compliance with the OpenClaw machine manifest (`https://aiagentstore.ai/.well-known/claw-earn.json`).")
-                    appendLine()
-                    appendLine("### 📋 Protocol & Architecture Runbook:")
-                    appendLine("1. **Canonical Routes Only:** Direct contract calls are strictly unsupported per OpenClaw policy; all queries and state transitions route through `/claw/*` and `/agent*` session endpoints to preserve metadata/submission sync.")
-                    appendLine("2. **Session Authentication:** Generates non-custodial wallet challenges via `POST /clawAgentSessionChallenge` and resolves `agentSessionToken` via `POST /clawAgentSession`.")
-                    appendLine("3. **Bounded Watcher Daemon:** Polling loop active (60s cycle, `light=true`, full parity poll every 5 cycles) tracking task state signals and heartbeat.")
-                    appendLine("4. **Task Scoping:** IDs persist as `(taskId, contractAddress)` pairs across Base contracts.")
-                    appendLine()
-                    appendLine("### 🛰️ Base L2 On-Chain Telemetry:")
-                    appendLine("• **EVM Chain ID:** Base Mainnet (`8453`)")
-                    appendLine("• **Indexer Status:** ${if (health.ok) "✅ Synchronized" else "⚠️ Syncing"} (Latest Block: `#${health.latestBlock}`)")
-                    appendLine("• **Active Contracts (${health.contracts.size}):**")
-                    health.contracts.forEach { appendLine("  - `$it`") }
-                    appendLine()
-                    appendLine("### 📊 Live Marketplace Inventory:")
-                    appendLine("• **Available for Staking:** **${counts.first} tasks** (0 open bounties)")
-                    appendLine("• **Occupied / Review Window:** **${counts.second} task**")
-                    appendLine("• **Completed Bounties:** **${counts.third} tasks** (Historical archive)")
-                    if (occupiedTask != null) {
+                    val counts = seekClawRepo.clawEarnCounts.value
+                    val responseMessage = buildString {
+                        appendLine("🦞 **Claw Earn on Base Network (Chain ID 8453) — Autonomous Execution**")
                         appendLine()
-                        appendLine("### 🔍 Live Occupied Bounty Inspection:")
-                        appendLine("• **Task:** ${occupiedTask.title} (`#${occupiedTask.taskId}`)")
-                        appendLine("• **Contract:** `${occupiedTask.contractAddress}`")
-                        appendLine("• **Reward:** **${occupiedTask.amountUsdc} USDC** (Base Escrow)")
-                        appendLine("• **Status:** `${occupiedTask.status}` (${occupiedTask.selectionStatus ?: "decision_window_exhausted"})")
-                        appendLine("• **Acceptance Criteria:** Publish *\"Hello MoltBook!!!\"* on Moltbook and return exact original post content.")
+                        appendLine("I have read and integrated **`SKILL.md`** (`https://aiagentstore.ai/skills/openclaw/claw-earn/SKILL.md`) and verified compliance with the OpenClaw machine manifest (`https://aiagentstore.ai/.well-known/claw-earn.json`).")
+                        appendLine()
+                        appendLine("### 📋 Protocol & Architecture Runbook:")
+                        appendLine("1. **Canonical Routes Only:** Direct contract calls are strictly unsupported per OpenClaw policy; all queries and state transitions route through `/claw/*` and `/agent*` session endpoints to preserve metadata/submission sync.")
+                        appendLine("2. **Session Authentication:** Generates non-custodial wallet challenges via `POST /clawAgentSessionChallenge` and resolves `agentSessionToken` via `POST /clawAgentSession`.")
+                        appendLine("3. **Bounded Watcher Daemon:** Polling loop active (60s cycle, `light=true`, full parity poll every 5 cycles) tracking task state signals and heartbeat.")
+                        appendLine("4. **Task Scoping:** IDs persist as `(taskId, contractAddress)` pairs across Base contracts.")
+                        appendLine()
+                        appendLine("### 🛰️ Base L2 On-Chain Telemetry:")
+                        appendLine("• **EVM Chain ID:** Base Mainnet (`8453`)")
+                        appendLine("• **Indexer Status:** ${if (health.ok) "✅ Synchronized" else "⚠️ Syncing"} (Latest Block: `#${health.latestBlock}`)")
+                        appendLine("• **Active Contracts (${health.contracts.size}):**")
+                        health.contracts.forEach { appendLine("  - `$it`") }
+                        appendLine()
+                        appendLine("### 📊 Live Marketplace Inventory:")
+                        appendLine("• **Available for Staking:** **${counts.first} tasks** (0 open bounties)")
+                        appendLine("• **Occupied / Review Window:** **${counts.second} task**")
+                        appendLine("• **Completed Bounties:** **${counts.third} tasks** (Historical archive)")
+                        if (occupiedTask != null) {
+                            appendLine()
+                            appendLine("### 🔍 Live Occupied Bounty Inspection:")
+                            appendLine("• **Task:** ${occupiedTask.title} (`#${occupiedTask.taskId}`)")
+                            appendLine("• **Contract:** `${occupiedTask.contractAddress}`")
+                            appendLine("• **Reward:** **${occupiedTask.amountUsdc} USDC** (Base Escrow)")
+                            appendLine("• **Status:** `${occupiedTask.status}` (${occupiedTask.selectionStatus ?: "decision_window_exhausted"})")
+                            appendLine("• **Acceptance Criteria:** Publish *\"Hello MoltBook!!!\"* on Moltbook and return exact original post content.")
+                        }
+                        append(deliverableNotice)
+                        appendLine()
+                        appendLine("---")
+                        appendLine("🟢 **Watcher Loop Status:** ACTIVE. Polling Base L2 every 60s for new funded tasks. You can view the live Base contracts and task states anytime in the **SeekClaw Hub ➔ Claw Earn (Base)** tab.")
                     }
-                    append(deliverableNotice)
-                    appendLine()
-                    appendLine("---")
-                    appendLine("🟢 **Watcher Loop Status:** ACTIVE. Polling Base L2 every 60s for new funded tasks. You can view the live Base contracts and task states anytime in the **SeekClaw Hub ➔ Claw Earn (Base)** tab.")
-                }
 
-                repository.insert(Message(role = "model", text = responseMessage, projectId = currentProject.value?.id))
-                isLoading.value = false
-                liveInternetStatus.value = null
+                    repository.insert(Message(role = "model", text = responseMessage, projectId = currentProject.value?.id))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    repository.insert(Message(role = "model", text = "Error: Claw Earn scan failed (${e.message})", projectId = currentProject.value?.id))
+                } finally {
+                    isLoading.value = false
+                    liveInternetStatus.value = null
+                }
                 return@launch
             }
 
@@ -843,442 +882,475 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             isLoading.value = true
+            try {
+                // Attached file or voice note context
+                val currentFile = attachedFile.value
+                val currentVoice = attachedVoiceNote.value
 
-            // Attached file or voice note context
-            val currentFile = attachedFile.value
-            val currentVoice = attachedVoiceNote.value
-
-            val finalUserText = if (currentVoice != null) {
-                val t = currentVoice.transcript.ifBlank { "Voice note audio memo recorded (${currentVoice.durationSec}s)" }
-                if (text.isNotBlank()) "$text\n\n[🎙️ Voice Note Transcription]: \"$t\"" else "🎙️ Voice Note (${currentVoice.durationSec}s):\n$t"
-            } else {
-                text
-            }
-
-            val fileAttachmentContext = if (currentFile != null) {
-                buildString {
-                    appendLine("--- ATTACHED DOCUMENT / DATASET: ${currentFile.name} (${FileUtils.formatFileSize(currentFile.sizeBytes)}) ---")
-                    if (currentFile.isTabularData && currentDataset.value != null) {
-                        appendLine(DataAnalysisUtils.generateStatisticalSummary(currentDataset.value!!))
-                        appendLine()
-                    }
-                    appendLine("Extracted Document Content:\n${currentFile.contentSnippet}")
-                    appendLine("--- END OF ATTACHED DOCUMENT ---")
+                val finalUserText = if (currentVoice != null) {
+                    val t = currentVoice.transcript.ifBlank { "Voice note audio memo recorded (${currentVoice.durationSec}s)" }
+                    if (text.isNotBlank()) "$text\n\n[🎙️ Voice Note Transcription]: \"$t\"" else "🎙️ Voice Note (${currentVoice.durationSec}s):\n$t"
+                } else {
+                    text
                 }
-            } else ""
 
-            // 1. Save user message
-            val userMsg = Message(
-                role = "user",
-                text = finalUserText,
-                imagePath = imagePath,
-                projectId = currentProject.value?.id,
-                fileAttachmentName = currentFile?.name ?: currentVoice?.let { "🎙️ Voice Memo (${it.durationSec}s)" },
-                fileAttachmentType = currentFile?.mimeType ?: currentVoice?.let { "audio/m4a" }
-            )
-            repository.insert(userMsg)
-
-            // Reset attached file and voice note after queueing
-            attachedFile.value = null
-            attachedVoiceNote.value = null
-
-            // Determine if Live Internet should be active: explicitly enabled OR auto-detected
-            val isLiveInternetNeeded = isLiveInternetEnabled.value ||
-                    (isAutoRoutingEnabled.value && (detected.autoTriggerLiveWeb || detected.intent == IntentDetector.RoutedIntent.STANDARD_WITH_LIVE_WEB))
-            val liveInternetActive = isLiveInternetNeeded
-            var usedLiveInternetDuringTurn = false
-
-            // Proactively detect live URLs in prompt
-            val urlRegex = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
-            val detectedUrls = urlRegex.findAll(text).map { it.value.trimEnd('.', ',', ')', ']', '}', '>', '"', '\'') }.toList()
-            var liveWebContext = ""
-
-            if (liveInternetActive && detectedUrls.isNotEmpty()) {
-                val targetUrl = detectedUrls.first()
-                liveInternetStatus.value = "🌐 Live Reading: $targetUrl..."
-                usedLiveInternetDuringTurn = true
-                val fetchedPages = detectedUrls.take(2).map { url ->
-                    LiveInternetService.fetchLiveWebpage(url)
-                }
-                liveWebContext = buildString {
-                    appendLine("--- LIVE REAL-TIME WEBPAGE CONTENT RETRIEVED BY DIRECT INTERNET BROWSER ---")
-                    fetchedPages.forEachIndexed { i, wp ->
-                        appendLine("Webpage #${i + 1}: ${wp.url}")
-                        appendLine("Title: ${wp.title}")
-                        if (wp.metaDescription.isNotEmpty()) {
-                            appendLine("Description: ${wp.metaDescription}")
-                        }
-                        appendLine("Content:\n${wp.content}")
-                        appendLine()
-                    }
-                    appendLine("--- END OF RETRIEVED LIVE CONTENT ---")
-                }
-            } else if (liveInternetActive && detected.autoTriggerLiveWeb) {
-                // Auto-triggered Live Internet search for current information
-                val query = detected.extractedParam?.ifBlank { text.trim() } ?: text.trim()
-                liveInternetStatus.value = "🔍 Live Searching: \"$query\"..."
-                usedLiveInternetDuringTurn = true
-                val searchResults = LiveInternetService.searchLiveInternet(query)
-                if (searchResults.isNotEmpty()) {
-                    liveWebContext = buildString {
-                        appendLine("--- LIVE REAL-TIME WEB SEARCH RESULTS (AUTONOMOUS ROUTING) ---")
-                        searchResults.take(3).forEachIndexed { i, item ->
-                            appendLine("[${i + 1}] ${item.title}")
-                            appendLine("URL: ${item.url}")
-                            appendLine("Snippet: ${item.snippet}")
+                val fileAttachmentContext = if (currentFile != null) {
+                    buildString {
+                        appendLine("--- ATTACHED DOCUMENT / DATASET: ${currentFile.name} (${FileUtils.formatFileSize(currentFile.sizeBytes)}) ---")
+                        if (currentFile.isTabularData && currentDataset.value != null) {
+                            appendLine(DataAnalysisUtils.generateStatisticalSummary(currentDataset.value!!))
                             appendLine()
                         }
-                        appendLine("--- END OF REAL-TIME WEB RESULTS ---")
+                        appendLine("Extracted Document Content:\n${currentFile.contentSnippet}")
+                        appendLine("--- END OF ATTACHED DOCUMENT ---")
                     }
-                }
-            }
+                } else ""
 
-            // 2. Token-Optimized History Construction
-            val cleanHistory = messages.value.filter { msg ->
-                val t = msg.text.trim()
-                !t.startsWith("⚠️") && !t.startsWith("Error:") && !t.startsWith("🔋") && !t.startsWith("🔌")
-            }.takeLast(6)
-
-            val combinedHistory = cleanHistory + userMsg
-            val apiContents = mutableListOf<Content>()
-
-            for (msg in combinedHistory) {
-                val parts = mutableListOf<Part>()
-                val isCurrentMsg = (msg === userMsg)
-                val effectiveText = if (isCurrentMsg) {
-                    listOfNotNull(
-                        fileAttachmentContext.ifBlank { null },
-                        liveWebContext.ifBlank { null },
-                        "User Request: ${msg.text}".ifBlank { null }
-                    ).joinToString("\n\n")
-                } else {
-                    msg.text
-                }
-
-                if (effectiveText.isNotEmpty()) {
-                    parts.add(Part(text = effectiveText))
-                }
-                if (isCurrentMsg && imagePath != null) {
-                    val base64 = ImageUtils.getBase64FromPath(imagePath)
-                    if (base64 != null) {
-                        parts.add(Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64)))
-                    }
-                }
-
-                if (parts.isNotEmpty()) {
-                    val last = apiContents.lastOrNull()
-                    if (last != null && last.role == msg.role) {
-                        apiContents[apiContents.size - 1] = Content(parts = last.parts + parts, role = msg.role)
-                    } else {
-                        apiContents.add(Content(parts = parts, role = msg.role))
-                    }
-                }
-            }
-
-            val apiKey = getEffectiveApiKey()
-            if (apiKey.isEmpty()) {
-                repository.insert(
-                    Message(
-                        role = "model",
-                        text = "⚠️ **Gemini API Key Required**\n\n" +
-                                "No active API key is set or the current key is a placeholder.\n\n" +
-                                "Tap **'Enter API Key'** below to paste your free Gemini API key from Google AI Studio (https://aistudio.google.com).",
-                        projectId = currentProject.value?.id
-                    )
+                // 1. Save user message
+                val userMsg = Message(
+                    role = "user",
+                    text = finalUserText,
+                    imagePath = imagePath,
+                    projectId = currentProject.value?.id,
+                    fileAttachmentName = currentFile?.name ?: currentVoice?.let { "🎙️ Voice Memo (${it.durationSec}s)" },
+                    fileAttachmentType = currentFile?.mimeType ?: currentVoice?.let { "audio/m4a" }
                 )
-                isLoading.value = false
-                return@launch
-            }
+                // Snapshot history *before* inserting: once Room emits the new row, messages.value
+                // would contain it too and the prompt would be sent twice.
+                val priorMessages = messages.value
+                repository.insert(userMsg)
 
-            // Configure Direct Live Internet Access Tools
-            val liveInternetTools = if (liveInternetActive) {
-                listOf(
-                    Tool(
-                        functionDeclarations = listOf(
-                            FunctionDeclaration(
-                                name = "search_live_web",
-                                description = "Searches the live internet in real time and returns current web search results, news, live facts, and website URLs.",
-                                parameters = Schema(
-                                    type = "OBJECT",
-                                    properties = mapOf(
-                                        "query" to Schema(
-                                            type = "STRING",
-                                            description = "The specific search query to execute on the live internet"
-                                        )
-                                    ),
-                                    required = listOf("query")
-                                )
-                            ),
-                            FunctionDeclaration(
-                                name = "fetch_website",
-                                description = "Connects directly to any live URL or website on the internet to fetch and read its current text content.",
-                                parameters = Schema(
-                                    type = "OBJECT",
-                                    properties = mapOf(
-                                        "url" to Schema(
-                                            type = "STRING",
-                                            description = "The complete URL of the webpage to browse and read"
-                                        )
-                                    ),
-                                    required = listOf("url")
-                                )
-                            )
-                        )
-                    )
-                )
-            } else {
-                null
-            }
+                // Reset attached file and voice note after queueing
+                attachedFile.value = null
+                attachedVoiceNote.value = null
 
-            // Build System Prompt with Memory & Projects injection
-            val memoryClause = if (isMemoryEnabled.value && memories.value.isNotEmpty()) {
-                buildString {
-                    appendLine("USER PERSISTENT MEMORIES & PREFERENCES:")
-                    memories.value.forEach { m ->
-                        appendLine("• [${m.category}] ${m.fact}")
+                // Determine if Live Internet should be active: explicitly enabled OR auto-detected
+                val isLiveInternetNeeded = isLiveInternetEnabled.value ||
+                        (isAutoRoutingEnabled.value && (detected.autoTriggerLiveWeb || detected.intent == IntentDetector.RoutedIntent.STANDARD_WITH_LIVE_WEB))
+                val liveInternetActive = isLiveInternetNeeded
+                var usedLiveInternetDuringTurn = false
+
+                // Proactively detect live URLs in prompt
+                val urlRegex = Regex("""https?://[^\s]+""", RegexOption.IGNORE_CASE)
+                val detectedUrls = urlRegex.findAll(text).map { it.value.trimEnd('.', ',', ')', ']', '}', '>', '"', '\'') }.toList()
+                var liveWebContext = ""
+
+                if (liveInternetActive && detectedUrls.isNotEmpty()) {
+                    val targetUrl = detectedUrls.first()
+                    liveInternetStatus.value = "🌐 Live Reading: $targetUrl..."
+                    usedLiveInternetDuringTurn = true
+                    val fetchedPages = detectedUrls.take(2).map { url ->
+                        LiveInternetService.fetchLiveWebpage(url)
                     }
-                    appendLine("Always adhere to these user memories across conversations.")
-                }
-            } else ""
-
-            val projectClause = currentProject.value?.let { proj ->
-                """
-                ACTIVE PROJECT WORKSPACE: "${proj.name}"
-                PROJECT CONTEXT: ${proj.description}
-                PROJECT CUSTOM INSTRUCTIONS: ${proj.customInstructions}
-                """.trimIndent()
-            } ?: ""
-
-            val personaClause = activePersona.value?.let { persona ->
-                """
-                SPECIALIZED ACTIVE PERSONA: "${persona.title}"
-                PERSONA INSTRUCTIONS: ${persona.defaultSystemPersona ?: persona.description}
-                Adhere strictly to this persona tone and methodology.
-                """.trimIndent()
-            } ?: ""
-
-            val liveSystemInstruction = Content(
-                parts = listOf(
-                    Part(
-                        text = """
-                            You are Kora.Ai, an elite, versatile AI assistant equipped with real-time web capabilities, coding prowess, multimodal analysis, interactive workspace tools, and persistent memory.
-                            
-                            $personaClause
-                            
-                            $projectClause
-                            
-                            $memoryClause
-                            
-                            CAPABILITIES & OPERATING DIRECTIVES:
-                            1. Direct Live Internet: Never claim you cannot access the web or browse external URLs. If a URL is provided or real-time info is requested, utilize your live browsing tools or read the provided live data.
-                            2. Deep Analysis: For coding, provide clear, syntactically correct code blocks with language identifiers. For data analysis, explain statistics, trends, and interpretations clearly.
-                            3. Formatting: Use Markdown headers, tables, bullet points, and code blocks for clean readability.
-                            4. Memory: When user asks to remember something, acknowledge that it has been saved to your persistent memory.
-                        """.trimIndent()
-                    )
-                )
-            )
-
-            var targetModel = selectedModel.value
-            var usedFallbackModel: String? = null
-            var keepGoing = true
-            var stepCount = 0
-
-            while (keepGoing && stepCount < 5) {
-                stepCount++
-                try {
-                    val request = GenerateContentRequest(
-                        contents = apiContents,
-                        systemInstruction = liveSystemInstruction,
-                        tools = liveInternetTools
-                    )
-
-                    val response = callWithFallback(targetModel, apiKey, request)
-                    val actualModelUsed = response.first
-                    val contentResponse = response.second
-
-                    if (actualModelUsed != targetModel) {
-                        usedFallbackModel = actualModelUsed
-                    }
-
-                    val candidate = contentResponse.candidates.firstOrNull()
-                    val candidateContent = candidate?.content
-                    val parts = candidateContent?.parts.orEmpty()
-
-                    val funcCallPart = parts.firstOrNull { it.functionCall != null }
-
-                    if (funcCallPart?.functionCall != null) {
-                        usedLiveInternetDuringTurn = true
-                        val funcCall = funcCallPart.functionCall
-
-                        var resultText = ""
-                        if (funcCall.name == "search_live_web") {
-                            val searchQuery = funcCall.args?.get("query")?.jsonPrimitive?.content ?: text
-                            liveInternetStatus.value = "🔍 Live Search: \"$searchQuery\"..."
-                            val searchResults = LiveInternetService.searchLiveInternet(searchQuery)
-                            resultText = if (searchResults.isEmpty()) {
-                                "No direct search results found for query: \"$searchQuery\"."
-                            } else {
-                                buildString {
-                                    appendLine("Direct Live Internet Search Results for: \"$searchQuery\":")
-                                    searchResults.forEachIndexed { i, item ->
-                                        appendLine("[${i + 1}] ${item.title}")
-                                        appendLine("URL: ${item.url}")
-                                        appendLine("Snippet: ${item.snippet}")
-                                        appendLine()
-                                    }
-                                }
+                    liveWebContext = buildString {
+                        appendLine("--- LIVE REAL-TIME WEBPAGE CONTENT RETRIEVED BY DIRECT INTERNET BROWSER ---")
+                        fetchedPages.forEachIndexed { i, wp ->
+                            appendLine("Webpage #${i + 1}: ${wp.url}")
+                            appendLine("Title: ${wp.title}")
+                            if (wp.metaDescription.isNotEmpty()) {
+                                appendLine("Description: ${wp.metaDescription}")
                             }
-                        } else if (funcCall.name == "fetch_website") {
-                            val url = funcCall.args?.get("url")?.jsonPrimitive?.content ?: ""
-                            liveInternetStatus.value = "🌐 Live Browsing: $url..."
-                            val webpage = LiveInternetService.fetchLiveWebpage(url)
-                            resultText = buildString {
-                                appendLine("Direct Live Webpage Content:")
-                                appendLine("URL: ${webpage.url}")
-                                appendLine("Title: ${webpage.title}")
-                                if (webpage.metaDescription.isNotEmpty()) {
-                                    appendLine("Description: ${webpage.metaDescription}")
-                                }
-                                appendLine("Text Content:\n${webpage.content}")
-                            }
+                            appendLine("Content:\n${wp.content}")
+                            appendLine()
                         }
-
-                        val preservedParts = parts.map { p ->
-                            if (p.functionCall != null) {
-                                val signature = p.thoughtSignature ?: p.functionCall.thoughtSignature
-                                p.copy(
-                                    thoughtSignature = signature,
-                                    functionCall = p.functionCall.copy(thoughtSignature = signature)
-                                )
-                            } else {
-                                p
+                        appendLine("--- END OF RETRIEVED LIVE CONTENT ---")
+                    }
+                } else if (liveInternetActive && detected.autoTriggerLiveWeb) {
+                    // Auto-triggered Live Internet search for current information
+                    val query = detected.extractedParam?.ifBlank { text.trim() } ?: text.trim()
+                    liveInternetStatus.value = "🔍 Live Searching: \"$query\"..."
+                    usedLiveInternetDuringTurn = true
+                    val searchResults = LiveInternetService.searchLiveInternet(query)
+                    if (searchResults.isNotEmpty()) {
+                        liveWebContext = buildString {
+                            appendLine("--- LIVE REAL-TIME WEB SEARCH RESULTS (AUTONOMOUS ROUTING) ---")
+                            searchResults.take(3).forEachIndexed { i, item ->
+                                appendLine("[${i + 1}] ${item.title}")
+                                appendLine("URL: ${item.url}")
+                                appendLine("Snippet: ${item.snippet}")
+                                appendLine()
                             }
+                            appendLine("--- END OF REAL-TIME WEB RESULTS ---")
                         }
+                    }
+                }
 
-                        val modelContentToAppend = candidateContent?.copy(
-                            role = "model",
-                            parts = preservedParts
-                        ) ?: Content(role = "model", parts = preservedParts)
+                // 2. Token-Optimized History Construction
+                val cleanHistory = priorMessages.filter { msg ->
+                    val t = msg.text.trim()
+                    !t.startsWith("⚠️") && !t.startsWith("Error:") && !t.startsWith("🔋") && !t.startsWith("🔌")
+                }.takeLast(6)
 
-                        val funcResponse = FunctionResponse(
-                            name = funcCall.name,
-                            response = buildJsonObject {
-                                put("content", JsonPrimitive(resultText))
-                            },
-                            id = funcCall.id
-                        )
-                        val tempUserMsg = Content(role = "user", parts = listOf(Part(functionResponse = funcResponse)))
-                        apiContents.add(modelContentToAppend)
-                        apiContents.add(tempUserMsg)
-                        liveInternetStatus.value = "⚡ Synthesizing live web data..."
+                val combinedHistory = cleanHistory + userMsg
+                val apiContents = mutableListOf<Content>()
+
+                for (msg in combinedHistory) {
+                    val parts = mutableListOf<Part>()
+                    val isCurrentMsg = (msg === userMsg)
+                    val effectiveText = if (isCurrentMsg) {
+                        listOfNotNull(
+                            fileAttachmentContext.ifBlank { null },
+                            liveWebContext.ifBlank { null },
+                            "User Request: ${msg.text}".ifBlank { null }
+                        ).joinToString("\n\n")
                     } else {
-                        val textParts = parts.filter { it.thought != true && !it.text.isNullOrBlank() }
-                        var modelText = if (textParts.isNotEmpty()) {
-                            textParts.joinToString("\n") { it.text.orEmpty() }
+                        msg.text
+                    }
+
+                    if (effectiveText.isNotEmpty()) {
+                        parts.add(Part(text = effectiveText))
+                    }
+                    if (isCurrentMsg && imagePath != null) {
+                        val base64 = ImageUtils.getBase64FromPath(imagePath)
+                        if (base64 != null) {
+                            parts.add(Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64)))
+                        }
+                    }
+
+                    if (parts.isNotEmpty()) {
+                        val last = apiContents.lastOrNull()
+                        if (last != null && last.role == msg.role) {
+                            apiContents[apiContents.size - 1] = Content(parts = last.parts + parts, role = msg.role)
                         } else {
-                            parts.firstOrNull { !it.text.isNullOrBlank() }?.text ?: "No response received"
-                        }
-                        if (usedLiveInternetDuringTurn) {
-                            modelText += "\n\n*(🌐 Sourced via Direct Live Internet)*"
-                        }
-                        if (usedFallbackModel != null) {
-                            modelText += "\n\n*(⚡ Responded via quota-resilient `$usedFallbackModel`)*"
-                        }
-                        repository.insert(
-                            Message(
-                                role = "model",
-                                text = modelText,
-                                projectId = currentProject.value?.id
-                            )
-                        )
-
-                        // Voice Mode Spoken Output (Feature 5)
-                        if (isVoiceAutoSpeak.value && !isVoiceModeOpen.value) {
-                            // If user triggered via voice or has auto-speak enabled
-                        }
-                        if (isVoiceAutoSpeak.value && isVoiceModeOpen.value) {
-                            voiceManager.speak(modelText)
-                        }
-
-                        keepGoing = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    val errorDetails = if (e is retrofit2.HttpException) {
-                        e.response()?.errorBody()?.string() ?: e.message
-                    } else {
-                        e.message
-                    }
-
-                    val isThoughtSignatureError = errorDetails?.contains("thought_signature", ignoreCase = true) == true
-                    if (isThoughtSignatureError && stepCount <= 2) {
-                        try {
-                            val promptText = if (liveWebContext.isNotEmpty()) "$liveWebContext\n\nUser Request: $text" else text
-                            val plainReq = GenerateContentRequest(
-                                contents = listOf(Content(role = "user", parts = listOf(Part(text = promptText)))),
-                                systemInstruction = Content(parts = listOf(Part(text = "You are Kora.Ai, an intelligent assistant. Thoroughly analyze and respond to the request.")))
-                            )
-                            val plainRes = RetrofitClient.service.generateContent(targetModel, apiKey, plainReq)
-                            val plainText = plainRes.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
-                            if (!plainText.isNullOrBlank()) {
-                                repository.insert(
-                                    Message(
-                                        role = "model",
-                                        text = plainText + "\n\n*(🌐 Sourced via Direct Live Internet)*",
-                                        projectId = currentProject.value?.id
-                                    )
-                                )
-                                keepGoing = false
-                                break
-                            }
-                        } catch (_: Exception) {}
-                    }
-
-                    val isQuotaError = errorDetails?.contains("429") == true ||
-                            errorDetails?.contains("RESOURCE_EXHAUSTED", ignoreCase = true) == true ||
-                            errorDetails?.contains("quota", ignoreCase = true) == true
-
-                    val isDailyCap = errorDetails?.contains("PerDay", ignoreCase = true) == true ||
-                            errorDetails?.contains("daily", ignoreCase = true) == true
-
-                    val formattedMsg = when {
-                        isDailyCap -> {
-                            "⚠️ **Daily Gemini Quota Limit Reached (429)**\n\n" +
-                                    "Google's free-tier daily cap (1,500 requests/day) has been reached on this API key.\n\n" +
-                                    "**How to continue immediately:**\n" +
-                                    "• Tap **'Enter API Key'** below to paste a different free key or a Pay-As-You-Go key with unlimited daily quota.\n" +
-                                    "• Free daily quotas reset at midnight Pacific Time."
-                        }
-                        isQuotaError -> {
-                            "⚠️ **Gemini API Rate Limit (15 Requests/Min)**\n\n" +
-                                    "The free tier per-minute request limit was reached temporarily.\n\n" +
-                                    "**Fast fixes:**\n" +
-                                    "• Wait 20-30 seconds, then tap **'Retry'** below.\n" +
-                                    "• Model automatically switched to **gemini-3.5-flash-lite**.\n" +
-                                    "• Or tap **'Enter API Key'** to add a Pay-As-You-Go key for 1,000+ RPM."
-                        }
-                        else -> {
-                            "Error: $errorDetails"
+                            apiContents.add(Content(parts = parts, role = msg.role))
                         }
                     }
+                }
 
-                    if (isQuotaError) {
-                        switchToLiteModel()
-                    }
-
+                val apiKey = getEffectiveApiKey()
+                if (apiKey.isEmpty()) {
                     repository.insert(
                         Message(
                             role = "model",
-                            text = formattedMsg,
+                            text = "⚠️ **Gemini API Key Required**\n\n" +
+                                    "No active API key is set or the current key is a placeholder.\n\n" +
+                                    "Tap **'Enter API Key'** below to paste your free Gemini API key from Google AI Studio (https://aistudio.google.com).",
                             projectId = currentProject.value?.id
                         )
                     )
-                    keepGoing = false
+                    isLoading.value = false
+                    return@launch
                 }
+
+                // Configure Direct Live Internet Access Tools
+                val liveInternetTools = if (liveInternetActive) {
+                    listOf(
+                        Tool(
+                            functionDeclarations = listOf(
+                                FunctionDeclaration(
+                                    name = "search_live_web",
+                                    description = "Searches the live internet in real time and returns current web search results, news, live facts, and website URLs.",
+                                    parameters = Schema(
+                                        type = "OBJECT",
+                                        properties = mapOf(
+                                            "query" to Schema(
+                                                type = "STRING",
+                                                description = "The specific search query to execute on the live internet"
+                                            )
+                                        ),
+                                        required = listOf("query")
+                                    )
+                                ),
+                                FunctionDeclaration(
+                                    name = "fetch_website",
+                                    description = "Connects directly to any live URL or website on the internet to fetch and read its current text content.",
+                                    parameters = Schema(
+                                        type = "OBJECT",
+                                        properties = mapOf(
+                                            "url" to Schema(
+                                                type = "STRING",
+                                                description = "The complete URL of the webpage to browse and read"
+                                            )
+                                        ),
+                                        required = listOf("url")
+                                    )
+                                )
+                            )
+                        )
+                    )
+                } else {
+                    null
+                }
+
+                // Build System Prompt with Memory & Projects injection
+                val memoryClause = if (isMemoryEnabled.value && memories.value.isNotEmpty()) {
+                    buildString {
+                        appendLine("USER PERSISTENT MEMORIES & PREFERENCES:")
+                        memories.value.forEach { m ->
+                            appendLine("• [${m.category}] ${m.fact}")
+                        }
+                        appendLine("Always adhere to these user memories across conversations.")
+                    }
+                } else ""
+
+                val projectClause = currentProject.value?.let { proj ->
+                    """
+                    ACTIVE PROJECT WORKSPACE: "${proj.name}"
+                    PROJECT CONTEXT: ${proj.description}
+                    PROJECT CUSTOM INSTRUCTIONS: ${proj.customInstructions}
+                    """.trimIndent()
+                } ?: ""
+
+                val personaClause = activePersona.value?.let { persona ->
+                    """
+                    SPECIALIZED ACTIVE PERSONA: "${persona.title}"
+                    PERSONA INSTRUCTIONS: ${persona.defaultSystemPersona ?: persona.description}
+                    Adhere strictly to this persona tone and methodology.
+                    """.trimIndent()
+                } ?: ""
+
+                val liveSystemInstruction = Content(
+                    parts = listOf(
+                        Part(
+                            text = """
+                                You are Kora.Ai, an elite, versatile AI assistant equipped with real-time web capabilities, coding prowess, multimodal analysis, interactive workspace tools, and persistent memory.
+                            
+                                $personaClause
+                            
+                                $projectClause
+                            
+                                $memoryClause
+                            
+                                CAPABILITIES & OPERATING DIRECTIVES:
+                                1. Direct Live Internet: Never claim you cannot access the web or browse external URLs. If a URL is provided or real-time info is requested, utilize your live browsing tools or read the provided live data.
+                                2. Deep Analysis: For coding, provide clear, syntactically correct code blocks with language identifiers. For data analysis, explain statistics, trends, and interpretations clearly.
+                                3. Formatting: Use Markdown headers, tables, bullet points, and code blocks for clean readability.
+                                4. Memory: When user asks to remember something, acknowledge that it has been saved to your persistent memory.
+                            """.trimIndent()
+                        )
+                    )
+                )
+
+                var targetModel = selectedModel.value
+                var usedFallbackModel: String? = null
+                var keepGoing = true
+                var stepCount = 0
+
+                while (keepGoing && stepCount < 5) {
+                    stepCount++
+                    try {
+                        val request = GenerateContentRequest(
+                            contents = apiContents,
+                            systemInstruction = liveSystemInstruction,
+                            tools = liveInternetTools
+                        )
+
+                        val response = callWithFallback(targetModel, apiKey, request)
+                        val actualModelUsed = response.first
+                        val contentResponse = response.second
+
+                        if (actualModelUsed != targetModel) {
+                            usedFallbackModel = actualModelUsed
+                        }
+
+                        val candidate = contentResponse.candidates.firstOrNull()
+                        val candidateContent = candidate?.content
+                        val parts = candidateContent?.parts.orEmpty()
+
+                        val funcCallPart = parts.firstOrNull { it.functionCall != null }
+
+                        if (funcCallPart?.functionCall != null) {
+                            usedLiveInternetDuringTurn = true
+                            val funcCall = funcCallPart.functionCall
+
+                            var resultText = ""
+                            if (funcCall.name == "search_live_web") {
+                                val searchQuery = funcCall.args?.get("query")?.jsonPrimitive?.content ?: text
+                                liveInternetStatus.value = "🔍 Live Search: \"$searchQuery\"..."
+                                val searchResults = LiveInternetService.searchLiveInternet(searchQuery)
+                                resultText = if (searchResults.isEmpty()) {
+                                    "No direct search results found for query: \"$searchQuery\"."
+                                } else {
+                                    buildString {
+                                        appendLine("Direct Live Internet Search Results for: \"$searchQuery\":")
+                                        searchResults.forEachIndexed { i, item ->
+                                            appendLine("[${i + 1}] ${item.title}")
+                                            appendLine("URL: ${item.url}")
+                                            appendLine("Snippet: ${item.snippet}")
+                                            appendLine()
+                                        }
+                                    }
+                                }
+                            } else if (funcCall.name == "fetch_website") {
+                                val url = funcCall.args?.get("url")?.jsonPrimitive?.content ?: ""
+                                liveInternetStatus.value = "🌐 Live Browsing: $url..."
+                                val webpage = LiveInternetService.fetchLiveWebpage(url)
+                                resultText = buildString {
+                                    appendLine("Direct Live Webpage Content:")
+                                    appendLine("URL: ${webpage.url}")
+                                    appendLine("Title: ${webpage.title}")
+                                    if (webpage.metaDescription.isNotEmpty()) {
+                                        appendLine("Description: ${webpage.metaDescription}")
+                                    }
+                                    appendLine("Text Content:\n${webpage.content}")
+                                }
+                            }
+
+                            val preservedParts = parts.map { p ->
+                                if (p.functionCall != null) {
+                                    val signature = p.thoughtSignature ?: p.functionCall.thoughtSignature
+                                    p.copy(
+                                        thoughtSignature = signature,
+                                        functionCall = p.functionCall.copy(thoughtSignature = signature)
+                                    )
+                                } else {
+                                    p
+                                }
+                            }
+
+                            val modelContentToAppend = candidateContent?.copy(
+                                role = "model",
+                                parts = preservedParts
+                            ) ?: Content(role = "model", parts = preservedParts)
+
+                            val funcResponse = FunctionResponse(
+                                name = funcCall.name,
+                                response = buildJsonObject {
+                                    put("content", JsonPrimitive(resultText))
+                                },
+                                id = funcCall.id
+                            )
+                            val tempUserMsg = Content(role = "user", parts = listOf(Part(functionResponse = funcResponse)))
+                            apiContents.add(modelContentToAppend)
+                            apiContents.add(tempUserMsg)
+                            liveInternetStatus.value = "⚡ Synthesizing live web data..."
+                        } else {
+                            val textParts = parts.filter { it.thought != true && !it.text.isNullOrBlank() }
+                            var modelText = if (textParts.isNotEmpty()) {
+                                textParts.joinToString("\n") { it.text.orEmpty() }
+                            } else {
+                                parts.firstOrNull { !it.text.isNullOrBlank() }?.text
+                                    ?: if (candidate?.finishReason == "SAFETY" || candidate == null) {
+                                        "⚠️ The response was blocked by Gemini's safety filters. Try rephrasing your request."
+                                    } else {
+                                        "No response received"
+                                    }
+                            }
+                            if (usedLiveInternetDuringTurn) {
+                                modelText += "\n\n*(🌐 Sourced via Direct Live Internet)*"
+                            }
+                            if (usedFallbackModel != null) {
+                                modelText += "\n\n*(⚡ Responded via quota-resilient `$usedFallbackModel`)*"
+                            }
+                            repository.insert(
+                                Message(
+                                    role = "model",
+                                    text = modelText,
+                                    projectId = currentProject.value?.id
+                                )
+                            )
+
+                            // Voice Mode Spoken Output (Feature 5)
+                            if (isVoiceAutoSpeak.value && !isVoiceModeOpen.value) {
+                                // If user triggered via voice or has auto-speak enabled
+                            }
+                            if (isVoiceAutoSpeak.value && isVoiceModeOpen.value) {
+                                voiceManager.speak(modelText)
+                            }
+
+                            keepGoing = false
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        e.printStackTrace()
+                        val errorDetails = if (e is retrofit2.HttpException) {
+                            e.response()?.errorBody()?.string() ?: e.message
+                        } else {
+                            e.message
+                        }
+
+                        val isThoughtSignatureError = errorDetails?.contains("thought_signature", ignoreCase = true) == true
+                        if (isThoughtSignatureError && stepCount <= 2) {
+                            try {
+                                val promptText = if (liveWebContext.isNotEmpty()) "$liveWebContext\n\nUser Request: $text" else text
+                                val plainReq = GenerateContentRequest(
+                                    contents = listOf(Content(role = "user", parts = listOf(Part(text = promptText)))),
+                                    systemInstruction = Content(parts = listOf(Part(text = "You are Kora.Ai, an intelligent assistant. Thoroughly analyze and respond to the request.")))
+                                )
+                                val plainRes = RetrofitClient.service.generateContent(targetModel, apiKey, plainReq)
+                                val plainText = plainRes.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
+                                if (!plainText.isNullOrBlank()) {
+                                    repository.insert(
+                                        Message(
+                                            role = "model",
+                                            text = if (usedLiveInternetDuringTurn) "$plainText\n\n*(🌐 Sourced via Direct Live Internet)*" else plainText,
+                                            projectId = currentProject.value?.id
+                                        )
+                                    )
+                                    keepGoing = false
+                                    break
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        val isQuotaError = errorDetails?.contains("429") == true ||
+                                errorDetails?.contains("RESOURCE_EXHAUSTED", ignoreCase = true) == true ||
+                                errorDetails?.contains("quota", ignoreCase = true) == true
+
+                        val isDailyCap = errorDetails?.contains("PerDay", ignoreCase = true) == true ||
+                                errorDetails?.contains("daily", ignoreCase = true) == true
+
+                        val formattedMsg = when {
+                            isDailyCap -> {
+                                "⚠️ **Daily Gemini Quota Limit Reached (429)**\n\n" +
+                                        "Google's free-tier daily cap (1,500 requests/day) has been reached on this API key.\n\n" +
+                                        "**How to continue immediately:**\n" +
+                                        "• Tap **'Enter API Key'** below to paste a different free key or a Pay-As-You-Go key with unlimited daily quota.\n" +
+                                        "• Free daily quotas reset at midnight Pacific Time."
+                            }
+                            isQuotaError -> {
+                                "⚠️ **Gemini API Rate Limit (15 Requests/Min)**\n\n" +
+                                        "The free tier per-minute request limit was reached temporarily.\n\n" +
+                                        "**Fast fixes:**\n" +
+                                        "• Wait 20-30 seconds, then tap **'Retry'** below.\n" +
+                                        "• Model automatically switched to **gemini-3.5-flash-lite**.\n" +
+                                        "• Or tap **'Enter API Key'** to add a Pay-As-You-Go key for 1,000+ RPM."
+                            }
+                            else -> {
+                                "Error: $errorDetails"
+                            }
+                        }
+
+                        if (isQuotaError) {
+                            switchToLiteModel()
+                        }
+
+                        repository.insert(
+                            Message(
+                                role = "model",
+                                text = formattedMsg,
+                                projectId = currentProject.value?.id
+                            )
+                        )
+                        keepGoing = false
+                    }
+                }
+
+                if (keepGoing) {
+                    // The model kept requesting tools until the step limit; don't leave the user hanging.
+                    repository.insert(
+                        Message(
+                            role = "model",
+                            text = "⚠️ I couldn't finish this request after several web lookups. Please try rephrasing or narrowing the question.",
+                            projectId = currentProject.value?.id
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.printStackTrace()
+                repository.insert(
+                    Message(
+                        role = "model",
+                        text = "Error: ${e.message ?: e.javaClass.simpleName}",
+                        projectId = currentProject.value?.id
+                    )
+                )
+            } finally {
+                liveInternetStatus.value = null
+                isLoading.value = false
             }
-            liveInternetStatus.value = null
-            isLoading.value = false
         }
     }
 
@@ -1298,7 +1370,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             if (!request.tools.isNullOrEmpty()) {
                 try {
-                    val noToolsRequest = GenerateContentRequest(contents = request.contents, tools = null)
+                    val noToolsRequest = request.copy(tools = null)
                     val res = RetrofitClient.service.generateContent(initialModel, apiKey, noToolsRequest)
                     return Pair(initialModel, res)
                 } catch (_: Exception) {}
@@ -1307,7 +1379,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             delay(1500)
 
             val noToolsReq = if (!request.tools.isNullOrEmpty()) {
-                GenerateContentRequest(contents = request.contents, tools = null)
+                request.copy(tools = null)
             } else {
                 request
             }
@@ -1337,8 +1409,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearHistory(context: Context) {
         viewModelScope.launch {
+            // Only delete images attached to the messages being cleared; other projects keep theirs.
+            val imagePaths = messages.value.mapNotNull { it.imagePath }
             repository.clearForProject(currentProject.value?.id)
-            ImageUtils.clearAllImages(context)
+            withContext(Dispatchers.IO) {
+                ImageUtils.deleteImages(context, imagePaths)
+            }
         }
     }
 
@@ -1524,6 +1600,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        voiceNoteTimerJob?.cancel()
+        if (voiceNoteRecorder.isRecording.value) {
+            voiceNoteRecorder.cancelRecording()
+        }
+        seekClawRepo.stopClawEarnWatcher()
         voiceManager.release()
+    }
+
+    private fun stripCodeFence(raw: String): String {
+        val trimmed = raw.trim()
+        if (!trimmed.startsWith("```")) return trimmed
+        // Drop the opening fence line (``` or ```lang) and a trailing closing fence.
+        val body = trimmed.substringAfter('\n', missingDelimiterValue = "")
+        return body.trimEnd().removeSuffix("```").trimEnd()
     }
 }

@@ -21,15 +21,17 @@ data class ParsedDataset(
 object DataAnalysisUtils {
 
     fun parseCsv(csvContent: String, maxRows: Int = 100): ParsedDataset? {
-        val lines = csvContent.lines().filter { it.isNotBlank() }
+        // FileUtils appends a "... [File content truncated ...]" marker; it is not a data row.
+        val lines = csvContent.lines().filter { it.isNotBlank() && !it.startsWith("... [File content truncated") }
         if (lines.isEmpty()) return null
 
-        val rawHeaders = parseCsvLine(lines.first())
+        val delimiter = detectDelimiter(lines.first())
+        val rawHeaders = parseCsvLine(lines.first(), delimiter)
         if (rawHeaders.isEmpty()) return null
 
         val dataRows = mutableListOf<List<String>>()
         for (i in 1 until minOf(lines.size, maxRows + 1)) {
-            val parsed = parseCsvLine(lines[i])
+            val parsed = parseCsvLine(lines[i], delimiter)
             if (parsed.isNotEmpty()) {
                 // Pad or trim to match header count
                 val adjusted = rawHeaders.indices.map { colIdx ->
@@ -77,26 +79,37 @@ object DataAnalysisUtils {
         )
     }
 
-    private fun parseCsvLine(line: String): List<String> {
-        val tokens = mutableListOf<String>()
-        val sb = java.lang.StringBuilder()
-        var inQuotes = false
+    /** Picks tab for TSV-style files, semicolon for European-locale CSV exports, else comma. */
+    internal fun detectDelimiter(headerLine: String): Char {
+        val candidates = listOf('\t', ';', ',')
+        return candidates.maxByOrNull { c -> headerLine.count { it == c } }
+            ?.takeIf { c -> headerLine.contains(c) } ?: ','
+    }
 
-        for (ch in line) {
-            when (ch) {
-                '"' -> inQuotes = !inQuotes
-                ',' -> {
-                    if (inQuotes) {
-                        sb.append(ch)
-                    } else {
-                        tokens.add(sb.toString().trim().removeSurrounding("\""))
-                        sb.clear()
-                    }
+    internal fun parseCsvLine(line: String, delimiter: Char = ','): List<String> {
+        val tokens = mutableListOf<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
+        var i = 0
+
+        while (i < line.length) {
+            val ch = line[i]
+            when {
+                ch == '"' && inQuotes && i + 1 < line.length && line[i + 1] == '"' -> {
+                    // RFC 4180 escaped quote ("") inside a quoted field
+                    sb.append('"')
+                    i++
+                }
+                ch == '"' -> inQuotes = !inQuotes
+                ch == delimiter && !inQuotes -> {
+                    tokens.add(sb.toString().trim())
+                    sb.clear()
                 }
                 else -> sb.append(ch)
             }
+            i++
         }
-        tokens.add(sb.toString().trim().removeSurrounding("\""))
+        tokens.add(sb.toString().trim())
         return tokens
     }
 

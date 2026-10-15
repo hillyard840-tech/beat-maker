@@ -12,10 +12,11 @@ import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import retrofit2.Retrofit
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.example.BuildConfig
 import retrofit2.http.Body
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
-import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 @Serializable
@@ -94,27 +95,33 @@ data class FunctionResponse(
 
 @Serializable
 data class GenerateContentResponse(
-    val candidates: List<Candidate>
+    // Absent when the prompt is blocked by safety filters, so it must not be required.
+    val candidates: List<Candidate> = emptyList()
 )
 
 @Serializable
 data class Candidate(
-    val content: Content
+    // Absent when the candidate was stopped early (e.g. finishReason = SAFETY).
+    val content: Content? = null,
+    val finishReason: String? = null
 )
+
+/** Gemini accepts the key as a header, which keeps it out of URLs (and therefore out of logs). */
+const val API_KEY_HEADER = "x-goog-api-key"
 
 interface GeminiApiService {
     @POST("v1beta/models/{model}:streamGenerateContent")
     @Streaming
     suspend fun generateContentStream(
         @Path("model") model: String,
-        @Query("key") apiKey: String,
+        @Header(API_KEY_HEADER) apiKey: String,
         @Body request: GenerateContentRequest
     ): ResponseBody
 
     @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
         @Path("model") model: String,
-        @Query("key") apiKey: String,
+        @Header(API_KEY_HEADER) apiKey: String,
         @Body request: GenerateContentRequest
     ): GenerateContentResponse
 }
@@ -123,7 +130,18 @@ object RetrofitClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor(okhttp3.logging.HttpLoggingInterceptor().apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY })
+        .apply {
+            // Never log request/response bodies in release builds: they contain the user's
+            // chats, attachments and (base64) images.
+            if (BuildConfig.DEBUG) {
+                addInterceptor(
+                    okhttp3.logging.HttpLoggingInterceptor().apply {
+                        level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
+                        redactHeader(API_KEY_HEADER)
+                    }
+                )
+            }
+        }
         .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
@@ -142,5 +160,17 @@ object RetrofitClient {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
         retrofit.create(GeminiApiService::class.java)
+    }
+}
+
+/** Resolves the key to use: the user's custom key first, then the build-time key (ignoring the placeholder). */
+object ApiKeys {
+    private const val PLACEHOLDER_KEY = "MY_GEMINI_API_KEY"
+
+    fun resolve(customKey: String?): String {
+        val custom = customKey?.trim().orEmpty()
+        if (custom.isNotEmpty()) return custom
+        val envKey = BuildConfig.GEMINI_API_KEY.trim()
+        return if (envKey == PLACEHOLDER_KEY) "" else envKey
     }
 }

@@ -24,7 +24,7 @@ class KoraQuickActionsWidget : AppWidgetProvider() {
         fun createActionPendingIntent(action: String, requestCode: Int): PendingIntent {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("EXTRA_ACTION", action)
+                putExtra(MainActivity.EXTRA_ACTION, action)
             }
             return PendingIntent.getActivity(
                 context,

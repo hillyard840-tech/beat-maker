@@ -18,13 +18,20 @@ import com.example.ui.seekclaw.SeekClawHubScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_ACTION = "EXTRA_ACTION"
+    }
+
     private var chatViewModel: ChatViewModel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val action = intent?.getStringExtra("EXTRA_ACTION")
+        // Only handle a widget action on a fresh launch. After a configuration change (e.g.
+        // rotation) the same intent is redelivered, and re-running "new_chat" would wipe the
+        // conversation again.
+        val action = if (savedInstanceState == null) consumeWidgetAction(intent) else null
 
         setContent {
             MyApplicationTheme {
@@ -104,10 +111,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun consumeWidgetAction(intent: Intent?): String? {
+        val action = intent?.getStringExtra(EXTRA_ACTION)
+        intent?.removeExtra(EXTRA_ACTION)
+        return action
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val action = intent.getStringExtra("EXTRA_ACTION")
+        val action = consumeWidgetAction(intent)
         if (!action.isNullOrBlank()) {
             chatViewModel?.handleWidgetAction(action, applicationContext)
         }

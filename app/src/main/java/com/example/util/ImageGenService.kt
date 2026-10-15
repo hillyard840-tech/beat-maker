@@ -2,6 +2,7 @@ package com.example.util
 
 import android.content.Context
 import android.graphics.*
+import com.example.api.API_KEY_HEADER
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -30,7 +31,8 @@ object ImageGenService {
     ): Pair<String, String> = withContext(Dispatchers.IO) {
         // Attempt 1: Google Imagen 3 API
         try {
-            val imagenUrl = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=$apiKey"
+            if (apiKey.isBlank()) throw IllegalStateException("No API key")
+            val imagenUrl = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict"
             val jsonBody = JSONObject().apply {
                 put("instances", org.json.JSONArray().put(JSONObject().put("prompt", prompt)))
                 put("parameters", JSONObject().apply {
@@ -42,23 +44,22 @@ object ImageGenService {
 
             val request = Request.Builder()
                 .url(imagenUrl)
+                .header(API_KEY_HEADER, apiKey)
                 .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val resBody = response.body?.string()
-                if (resBody != null) {
-                    val root = JSONObject(resBody)
-                    val predictions = root.optJSONArray("predictions")
-                    if (predictions != null && predictions.length() > 0) {
-                        val base64 = predictions.getJSONObject(0).optString("bytesBase64Encoded")
-                        if (base64.isNotBlank()) {
-                            val decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-                            val file = File(context.cacheDir, "img_${UUID.randomUUID()}.jpg")
-                            FileOutputStream(file).use { it.write(decodedBytes) }
-                            return@withContext Pair(file.absolutePath, "Generated via Imagen 3")
-                        }
+            val resBody = httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) response.body?.string() else null
+            }
+            if (resBody != null) {
+                val predictions = JSONObject(resBody).optJSONArray("predictions")
+                if (predictions != null && predictions.length() > 0) {
+                    val base64 = predictions.getJSONObject(0).optString("bytesBase64Encoded")
+                    if (base64.isNotBlank()) {
+                        val decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                        val file = File(context.filesDir, "img_${UUID.randomUUID()}.jpg")
+                        FileOutputStream(file).use { it.write(decodedBytes) }
+                        return@withContext Pair(file.absolutePath, "Generated via Imagen 3")
                     }
                 }
             }
@@ -66,7 +67,7 @@ object ImageGenService {
             // Fallback to high-res synthesized generative canvas
         }
 
-        // High-Quality Generative Creative Synthesis Engine
+        // Offline fallback render (also used when no API key is configured)
         val file = createCreativeRender(context, prompt)
         Pair(file.absolutePath, "Generated via Kora Creative Engine")
     }
@@ -137,7 +138,7 @@ object ImageGenService {
         canvas.drawText("✨ GENERATED CONCEPT", width / 2f, height - 120f, titlePaint)
         canvas.drawText("\"$promptWords\"", width / 2f, height - 70f, subtitlePaint)
 
-        val file = File(context.cacheDir, "img_${UUID.randomUUID()}.jpg")
+        val file = File(context.filesDir, "img_${UUID.randomUUID()}.jpg")
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
         }

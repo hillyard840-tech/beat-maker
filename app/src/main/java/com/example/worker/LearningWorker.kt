@@ -3,8 +3,6 @@ package com.example.worker
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import androidx.room.Room
-import com.example.BuildConfig
 import com.example.api.*
 import com.example.data.*
 import kotlinx.coroutines.Dispatchers
@@ -15,11 +13,7 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            val db = Room.databaseBuilder(
-                applicationContext,
-                AppDatabase::class.java, "chat-database"
-            ).fallbackToDestructiveMigration().build()
-            
+            val db = AppDatabase.getInstance(applicationContext)
             val dao = db.messageDao()
             val skillDao = db.skillDao()
 
@@ -29,8 +23,7 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
                 return@withContext Result.success()
             }
 
-            val customKey = prefs.getString("custom_api_key", "")?.trim() ?: ""
-            val apiKey = if (customKey.isNotEmpty()) customKey else BuildConfig.GEMINI_API_KEY
+            val apiKey = ApiKeys.resolve(prefs.getString("custom_api_key", ""))
             if (apiKey.isEmpty()) return@withContext Result.success()
 
             val topics = listOf(
@@ -56,7 +49,8 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
             for (model in learningModels) {
                 try {
                     val response = RetrofitClient.service.generateContent(model, apiKey, request)
-                    text = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    text = response.candidates.firstOrNull()?.content?.parts
+                        ?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                     if (text != null) break
                 } catch (_: Exception) {
                     continue
@@ -84,7 +78,7 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
                         topic = topic,
                         progress = newProgress,
                         level = level,
-                        lastInsight = text.take(150) + "...",
+                        lastInsight = if (text.length > 150) text.take(150) + "..." else text,
                         updatedAt = System.currentTimeMillis()
                     )
                 )

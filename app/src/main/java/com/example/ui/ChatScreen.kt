@@ -51,7 +51,6 @@ import com.example.data.Message
 import com.example.data.PromptTemplate
 import com.example.util.ExportUtils
 import com.example.util.FileUtils
-import com.example.util.ImageUtils
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,8 +126,8 @@ fun ChatScreen(
             inputFieldState = TextFieldValue("", selection = TextRange.Zero)
             keyboardController?.hide()
             focusManager.clearFocus(force = false)
-            val imagePath = selectedImageUri?.let { ImageUtils.copyUriToInternalStorage(context, it) }
-            viewModel.sendMessage(trimmedText, imagePath)
+            // Image copy/compression happens off the main thread inside the ViewModel.
+            viewModel.sendMessageWithImage(trimmedText, selectedImageUri)
             selectedImageUri = null
         }
     }

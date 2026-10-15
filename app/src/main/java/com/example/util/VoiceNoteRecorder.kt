@@ -25,6 +25,7 @@ class VoiceNoteRecorder(private val context: Context) {
     private var recordStartTime: Long = 0L
 
     fun startRecording(onSpeechRecognized: ((String) -> Unit)? = null): Boolean {
+        if (isRecording.value) return false
         return try {
             val audioDir = File(context.cacheDir, "audio")
             if (!audioDir.exists()) audioDir.mkdirs()
@@ -46,10 +47,16 @@ class VoiceNoteRecorder(private val context: Context) {
             recorder.setAudioSamplingRate(44100)
             recorder.setOutputFile(file.absolutePath)
 
-            recorder.prepare()
-            recorder.start()
+            try {
+                recorder.prepare()
+                recorder.start()
+            } catch (e: Exception) {
+                recorder.release()
+                throw e
+            }
             mediaRecorder = recorder
             recordStartTime = System.currentTimeMillis()
+            recordingDurationSec.value = 0
             isRecording.value = true
             liveTranscript.value = ""
 
@@ -58,6 +65,8 @@ class VoiceNoteRecorder(private val context: Context) {
             true
         } catch (e: Exception) {
             e.printStackTrace()
+            currentAudioFile?.delete()
+            currentAudioFile = null
             isRecording.value = false
             false
         }
@@ -105,11 +114,30 @@ class VoiceNoteRecorder(private val context: Context) {
         }
     }
 
+    /** Seconds since recording started; the ViewModel polls this to drive the on-screen timer. */
+    fun elapsedSeconds(): Int =
+        if (isRecording.value) ((System.currentTimeMillis() - recordStartTime) / 1000).toInt() else 0
+
     data class VoiceNoteResult(
         val file: File,
         val durationSec: Int,
         val transcript: String
     )
+
+    /** Stops and always releases the recorder (a failed stop() must not leak the mic). */
+    private fun releaseRecorder(): Boolean {
+        val recorder = mediaRecorder ?: return false
+        mediaRecorder = null
+        return try {
+            recorder.stop()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        } finally {
+            recorder.release()
+        }
+    }
 
     fun stopRecording(): VoiceNoteResult? {
         val file = currentAudioFile ?: return null
@@ -123,16 +151,18 @@ class VoiceNoteRecorder(private val context: Context) {
             e.printStackTrace()
         }
 
-        try {
-            mediaRecorder?.stop()
-            mediaRecorder?.release()
-            mediaRecorder = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val stoppedCleanly = releaseRecorder()
+        currentAudioFile = null
 
         isRecording.value = false
         val finalTranscript = liveTranscript.value
+
+        // MediaRecorder.stop() throws if nothing was captured (e.g. a sub-second tap); the file
+        // is unusable then, so don't hand back an empty attachment.
+        if (!stoppedCleanly) {
+            file.delete()
+            return null
+        }
 
         return VoiceNoteResult(
             file = file,
@@ -150,13 +180,7 @@ class VoiceNoteRecorder(private val context: Context) {
             e.printStackTrace()
         }
 
-        try {
-            mediaRecorder?.stop()
-            mediaRecorder?.release()
-            mediaRecorder = null
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        releaseRecorder()
 
         currentAudioFile?.delete()
         currentAudioFile = null
