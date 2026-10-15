@@ -1,0 +1,6 @@
+{
+  "name": "Kora.Ai",
+  "description": "An unrestricted multi-modal AI agent with operational state monitoring, background task controls, Canvas workspace, SeekClaw agent marketplace, and Moltbook autonomous social network integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

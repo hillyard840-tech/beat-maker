@@ -1,0 +1,3 @@
+sed -i 's/val isLoading = MutableStateFlow(false)/val isLoading = MutableStateFlow(false)\n    val selectedModel = MutableStateFlow("gemini-3.6-flash")/g' app/src/main/java/com/example/ui/ChatViewModel.kt
+sed -i 's/fun sendMessage(text: String, imagePath: String?) {/fun updateModel(model: String) {\n        selectedModel.value = model\n    }\n\n    fun sendMessage(text: String, imagePath: String?) {/g' app/src/main/java/com/example/ui/ChatViewModel.kt
+sed -i 's/RetrofitClient.service.generateContent("gemini-3.6-flash", apiKey, request)/RetrofitClient.service.generateContent(selectedModel.value, apiKey, request)/g' app/src/main/java/com/example/ui/ChatViewModel.kt

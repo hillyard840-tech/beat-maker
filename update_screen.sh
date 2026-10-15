@@ -1,0 +1,3 @@
+sed -i 's/fun ChatScreen(viewModel: ChatViewModel = viewModel()) {/fun ChatScreen(viewModel: ChatViewModel = viewModel(), onDashboardClick: () -> Unit = {}) {/g' app/src/main/java/com/example/ui/ChatScreen.kt
+sed -i 's/IconButton(/IconButton(\n                        onClick = onDashboardClick,\n                        modifier = Modifier.testTag("dashboard_button")\n                    ) {\n                        Icon(androidx.compose.material.icons.Icons.Default.Insights, contentDescription = "Dashboard")\n                    }\n                    IconButton(/g' app/src/main/java/com/example/ui/ChatScreen.kt
+sed -i '1s/^/import androidx.compose.material.icons.filled.Insights\n/' app/src/main/java/com/example/ui/ChatScreen.kt

@@ -1,0 +1,2 @@
+sed -i 's/.build()/.fallbackToDestructiveMigration().build()/g' app/src/main/java/com/example/ui/ChatViewModel.kt
+sed -i 's/private val repository = MessageRepository(db.messageDao())/private val repository = MessageRepository(db.messageDao())\n    val skills: StateFlow<List<Skill>> = db.skillDao().getAllSkills().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())/g' app/src/main/java/com/example/ui/ChatViewModel.kt
