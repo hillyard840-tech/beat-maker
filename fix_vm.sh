@@ -1,2 +1,0 @@
-sed -i 's/PeriodicWorkRequestBuilder<LearningWorker>(1, TimeUnit.HOURS)\n                .fallbackToDestructiveMigration().build()/PeriodicWorkRequestBuilder<LearningWorker>(1, TimeUnit.HOURS)\n                .build()/g' app/src/main/java/com/example/ui/ChatViewModel.kt
-sed -i 's/PeriodicWorkRequestBuilder<LearningWorker>(1, TimeUnit.HOURS)\n                .fallbackToDestructiveMigration().build()/PeriodicWorkRequestBuilder<LearningWorker>(1, TimeUnit.HOURS)\n                .build()/g' app/src/main/java/com/example/ui/ChatViewModel.kt

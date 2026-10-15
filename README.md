@@ -57,3 +57,8 @@ Configure your Gemini API key in the AI Studio Secrets panel or directly inside 
 1. Tap the **Settings (⚙️)** icon in the top app bar.
 2. Select the **Quota & API Key** tab.
 3. Paste your Gemini API key and tap **Save Key**.
+
+### Building
+- Open the project in Android Studio, or run `./gradlew assembleDebug`.
+- Signing keystores are not committed. `debug.keystore` and `my-upload-key.jks` (or `KEYSTORE_PATH`) are used only if present; without them debug builds use the default Android debug key and release builds are unsigned.
+- Run unit tests with `./gradlew testDebugUnitTest`.
