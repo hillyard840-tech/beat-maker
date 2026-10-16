@@ -1,5 +1,6 @@
 package com.example.api
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -9,6 +10,7 @@ import kotlinx.serialization.json.contentOrNull
  * Parses Gemini's streamGenerateContent?alt=sse output ("data: {json}" lines) and merges the
  * chunks into one response that the rest of the app can handle like a normal generateContent reply.
  */
+@OptIn(ExperimentalSerializationApi::class)
 object StreamParser {
     private val json = Json {
         ignoreUnknownKeys = true

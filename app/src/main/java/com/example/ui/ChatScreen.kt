@@ -313,25 +313,18 @@ fun ChatScreen(
                 }
 
                 // Jump to latest
-                AnimatedVisibility(
+                JumpToLatestButton(
                     visible = !isAtBottom && messages.isNotEmpty(),
-                    enter = fadeIn(),
-                    exit = fadeOut(),
+                    onClick = {
+                        scope.launch {
+                            val total = listState.layoutInfo.totalItemsCount
+                            if (total > 0) listState.animateScrollToItem(total - 1)
+                        }
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp)
-                ) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            scope.launch {
-                                val total = listState.layoutInfo.totalItemsCount
-                                if (total > 0) listState.animateScrollToItem(total - 1)
-                            }
-                        }
-                    ) {
-                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Jump to latest message")
-                    }
-                }
+                )
             }
 
             // ---------- Input area ----------
@@ -492,6 +485,37 @@ private fun ChatTopBar(
     val memories by viewModel.memories.collectAsStateWithLifecycle()
     val isSearchOpen by viewModel.isSearchOpen.collectAsStateWithLifecycle()
     var showMenu by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Theme") },
+            text = {
+                Column {
+                    listOf(
+                        ChatViewModel.THEME_SYSTEM to "Match system",
+                        ChatViewModel.THEME_LIGHT to "Light",
+                        ChatViewModel.THEME_DARK to "Dark"
+                    ).forEach { (mode, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { viewModel.setThemeMode(mode) }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(selected = themeMode == mode, onClick = { viewModel.setThemeMode(mode) })
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("Done") } }
+        )
+    }
 
     TopAppBar(
         navigationIcon = {
@@ -542,6 +566,7 @@ private fun ChatTopBar(
                     MenuItem(Icons.Default.Insights, "Dashboard") { showMenu = false; onOpenDashboard() }
                     MenuItem(Icons.Default.Tune, "Background tasks") { showMenu = false; onOpenStatus() }
                     MenuItem(Icons.Default.Settings, "Settings") { showMenu = false; onOpenSettings() }
+                    MenuItem(Icons.Default.DarkMode, "Theme") { showMenu = false; showThemeDialog = true }
                     HorizontalDivider()
                     MenuItem(Icons.Default.Description, "Export as Markdown") { showMenu = false; viewModel.exportChatAsMarkdown(context) }
                     MenuItem(Icons.Default.Share, "Share as text") { showMenu = false; viewModel.exportChatAsText(context) }
@@ -611,6 +636,16 @@ private fun SearchBarRow(
             modifier = Modifier.padding(start = 8.dp)
         )
         IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close search") }
+    }
+}
+
+/** Separate composable so AnimatedVisibility isn't resolved against the surrounding ColumnScope. */
+@Composable
+private fun JumpToLatestButton(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut(), modifier = modifier) {
+        SmallFloatingActionButton(onClick = onClick) {
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Jump to latest message")
+        }
     }
 }
 

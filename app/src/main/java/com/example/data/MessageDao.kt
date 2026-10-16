@@ -23,6 +23,9 @@ interface MessageDao {
     @Query("SELECT imagePath FROM messages WHERE projectId = :projectId AND imagePath IS NOT NULL")
     suspend fun getImagePathsForProject(projectId: Int): List<String>
 
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestamp ASC")
+    suspend fun getMessagesForConversationOnce(conversationId: Int): List<Message>
+
     @Query("DELETE FROM messages WHERE conversationId = :conversationId")
     suspend fun clearConversation(conversationId: Int)
 

@@ -95,4 +95,12 @@ class RemoteParsersTest {
         assertEquals("quota", JsonHttp.errorMessageOf(json("""{"error":{"message":"quota"}}""") as JsonObject))
         assertNull(JsonHttp.errorMessageOf(json("""{"error":false}""") as JsonObject))
     }
+
+    @Test
+    fun `duplicate items from the server are dropped`() {
+        val posts = MoltbookParser.posts(json("""{"posts":[{"id":"a","title":"1"},{"id":"a","title":"1 again"},{"id":"b","title":"2"}]}"""))
+        assertEquals(listOf("a", "b"), posts.map { it.id })
+        val page = ClawEarnParser.taskPage(json("""{"items":[{"taskId":"1","contractAddress":"0x1"},{"taskId":"1","contractAddress":"0x1"},{"taskId":"1","contractAddress":"0x2"}]}"""))
+        assertEquals(2, page.tasks.size)
+    }
 }

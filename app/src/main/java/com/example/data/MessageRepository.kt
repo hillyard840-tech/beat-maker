@@ -49,6 +49,7 @@ class MessageRepository(
     suspend fun renameConversation(id: Int, title: String) = conversationDao.rename(id, title)
     suspend fun touchConversation(id: Int) = conversationDao.touch(id, System.currentTimeMillis())
     suspend fun imagePathsForConversation(id: Int): List<String> = messageDao.getImagePathsForConversation(id)
+    suspend fun messagesOnce(conversationId: Int): List<Message> = messageDao.getMessagesForConversationOnce(conversationId)
 
     /** Deletes a conversation and all of its messages. */
     suspend fun deleteConversation(id: Int) {

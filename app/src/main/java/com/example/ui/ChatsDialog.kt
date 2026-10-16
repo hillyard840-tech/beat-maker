@@ -28,6 +28,7 @@ fun ChatsDialog(viewModel: ChatViewModel, onDismiss: () -> Unit) {
     val currentProject by viewModel.currentProject.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<Conversation?>(null) }
+    var pendingRename by remember { mutableStateOf<Conversation?>(null) }
     val dateFormat = remember { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
 
     AlertDialog(
@@ -69,6 +70,9 @@ fun ChatsDialog(viewModel: ChatViewModel, onDismiss: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            IconButton(onClick = { pendingRename = conversation }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Rename chat")
+                            }
                             IconButton(onClick = { pendingDelete = conversation }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete chat")
                             }
@@ -86,6 +90,27 @@ fun ChatsDialog(viewModel: ChatViewModel, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
+
+    pendingRename?.let { conversation ->
+        var newTitle by remember(conversation.id) { mutableStateOf(conversation.title) }
+        AlertDialog(
+            onDismissRequest = { pendingRename = null },
+            title = { Text("Rename chat") },
+            text = {
+                OutlinedTextField(value = newTitle, onValueChange = { newTitle = it }, singleLine = true, label = { Text("Name") })
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameConversation(conversation.id, newTitle)
+                        pendingRename = null
+                    },
+                    enabled = newTitle.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { pendingRename = null }) { Text("Cancel") } }
+        )
+    }
 
     pendingDelete?.let { conversation ->
         AlertDialog(

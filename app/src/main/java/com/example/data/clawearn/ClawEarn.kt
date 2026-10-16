@@ -59,7 +59,8 @@ object ClawEarnParser {
     fun taskPage(root: JsonElement): ClawEarnTaskPage {
         val counts = (root as? JsonObject)?.obj("counts")
         return ClawEarnTaskPage(
-            tasks = root.arrayOf("items", "tasks", "data").mapNotNull { task(it) },
+            tasks = root.arrayOf("items", "tasks", "data").mapNotNull { task(it) }
+                .distinctBy { "${it.contractAddress}:${it.taskId}" }, // list rows are keyed by this
             available = counts?.num("available")?.toInt(),
             occupied = counts?.num("occupied")?.toInt(),
             completed = counts?.num("completed")?.toInt()

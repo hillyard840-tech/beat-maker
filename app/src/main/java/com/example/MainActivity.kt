@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,9 +38,16 @@ class MainActivity : ComponentActivity() {
         val action = if (savedInstanceState == null) consumeWidgetAction(intent) else null
 
         setContent {
-            MyApplicationTheme {
-                val viewModel: ChatViewModel = viewModel()
-                chatViewModel = viewModel
+            val viewModel: ChatViewModel = viewModel()
+            chatViewModel = viewModel
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val darkTheme = when (themeMode) {
+                ChatViewModel.THEME_LIGHT -> false
+                ChatViewModel.THEME_DARK -> true
+                else -> isSystemInDarkTheme()
+            }
+
+            MyApplicationTheme(darkTheme = darkTheme) {
 
                 LaunchedEffect(action) {
                     if (!action.isNullOrBlank()) {

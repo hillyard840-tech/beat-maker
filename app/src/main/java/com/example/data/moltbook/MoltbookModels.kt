@@ -88,7 +88,8 @@ object MoltbookParser {
     }
 
     fun posts(root: JsonElement): List<MoltbookPost> =
-        root.arrayOf("posts", "data", "results").mapNotNull { post(it) }
+        // De-duplicated: the UI keys list rows by id, and a repeated id would crash the list.
+        root.arrayOf("posts", "data", "results").mapNotNull { post(it) }.distinctBy { it.id }
 
     fun post(o: JsonObject): MoltbookPost? {
         val id = o.str("id", "_id", "post_id") ?: return null
@@ -116,7 +117,7 @@ object MoltbookParser {
                 upvotes = c.num("upvotes")?.toInt() ?: 0,
                 createdAt = c.str("created_at", "createdAt")
             )
-        }
+        }.distinctBy { it.id }
 
     fun submolts(root: JsonElement): List<MoltbookSubmolt> =
         root.arrayOf("submolts", "data", "results").mapNotNull { s ->

@@ -59,6 +59,14 @@ enum class AgentOperationalState(
 }
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val MAX_HISTORY_MESSAGES = 20
+        private const val MAX_HISTORY_CHARS = 24_000
+        const val THEME_SYSTEM = "system"
+        const val THEME_LIGHT = "light"
+        const val THEME_DARK = "dark"
+    }
+
     private val prefs = application.getSharedPreferences("omni_agent_prefs", Context.MODE_PRIVATE)
 
     private val db = AppDatabase.getInstance(application)
@@ -169,6 +177,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val showImageGenDialog = MutableStateFlow(false)
     val showClearHistoryConfirm = MutableStateFlow(false)
     val showVisualDiagnostics = MutableStateFlow(false)
+
+    /** "system", "light" or "dark". */
+    val themeMode = MutableStateFlow(prefs.getString("theme_mode", THEME_SYSTEM) ?: THEME_SYSTEM)
+
+    fun setThemeMode(mode: String) {
+        themeMode.value = mode
+        prefs.edit().putString("theme_mode", mode).apply()
+    }
 
     val isLoading = MutableStateFlow(false)
 
@@ -722,9 +738,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Re-asks the last question: the failed turn (question + error notice) is replaced, not duplicated. */
     fun retryLastUserMessage() {
-        val lastUser = messages.value.lastOrNull { it.role == "user" }
-        if (lastUser != null && !isLoading.value) {
+        val chatId = currentConversationId.value ?: return
+        if (isLoading.value) return
+        viewModelScope.launch {
+            val history = repository.messagesOnce(chatId)
+            val lastUserIndex = history.indexOfLast { it.role == "user" }
+            if (lastUserIndex == -1) return@launch
+            val lastUser = history[lastUserIndex]
+            history.drop(lastUserIndex).forEach { repository.deleteMessage(it.id) }
             sendMessage(lastUser.text, lastUser.imagePath)
         }
     }
@@ -855,19 +878,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     fileAttachmentName = currentFile?.name ?: currentVoice?.let { "🎙️ Voice Memo (${it.durationSec}s)" },
                     fileAttachmentType = currentFile?.mimeType ?: currentVoice?.let { "audio/m4a" }
                 )
-                // Snapshot history *before* inserting: once Room emits the new row, messages.value
-                // would contain it too and the prompt would be sent twice.
-                val priorMessages = messages.value
+                // Read history straight from the database for *this* chat, before inserting the new
+                // message: the cached list can lag behind a chat switch or already contain the row.
+                val priorMessages = repository.messagesOnce(chatId)
                 insertInto(chatId, userMsg)
 
                 // Reset attached file and voice note after queueing
                 attachedFile.value = null
                 attachedVoiceNote.value = null
 
-                // Determine if Live Internet should be active: explicitly enabled OR auto-detected
-                val isLiveInternetNeeded = isLiveInternetEnabled.value ||
-                        (isAutoRoutingEnabled.value && (detected.autoTriggerLiveWeb || detected.intent == IntentDetector.RoutedIntent.STANDARD_WITH_LIVE_WEB))
-                val liveInternetActive = isLiveInternetNeeded
+                // The "Live web" toggle is the user's privacy switch: when it's off, nothing is sent to
+                // search engines or fetched from the web, even for time-sensitive questions.
+                val liveInternetActive = isLiveInternetEnabled.value
                 var usedLiveInternetDuringTurn = false
 
                 // Proactively detect live URLs in prompt
@@ -895,7 +917,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         appendLine("--- END OF RETRIEVED LIVE CONTENT ---")
                     }
-                } else if (liveInternetActive && detected.autoTriggerLiveWeb) {
+                } else if (liveInternetActive && isAutoRoutingEnabled.value && detected.autoTriggerLiveWeb) {
                     // Auto-triggered Live Internet search for current information
                     val query = detected.extractedParam?.ifBlank { text.trim() } ?: text.trim()
                     liveInternetStatus.value = "🔍 Live Searching: \"$query\"..."
@@ -916,10 +938,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 2. Token-Optimized History Construction
+                // Recent turns, newest last, within a size budget so long chats stay affordable.
                 val cleanHistory = priorMessages.filter { msg ->
                     val t = msg.text.trim()
-                    !t.startsWith("⚠️") && !t.startsWith("Error:") && !t.startsWith("🔋") && !t.startsWith("🔌")
-                }.takeLast(6)
+                    t.isNotEmpty() && !t.startsWith("⚠️") && !t.startsWith("Error:") && !t.startsWith("🔋") && !t.startsWith("🔌")
+                }.takeLast(MAX_HISTORY_MESSAGES).let { recent ->
+                    var budget = MAX_HISTORY_CHARS
+                    recent.asReversed().takeWhile { m -> budget -= m.text.length; budget >= 0 }.asReversed()
+                }
 
                 val combinedHistory = cleanHistory + userMsg
                 val apiContents = mutableListOf<Content>()
@@ -1053,7 +1079,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 $memoryClause
                             
                                 CAPABILITIES & OPERATING DIRECTIVES:
-                                1. Direct Live Internet: Never claim you cannot access the web or browse external URLs. If a URL is provided or real-time info is requested, utilize your live browsing tools or read the provided live data.
+                                1. Web access: ${if (liveInternetActive) "You can search the web and read pages with your tools. Use them for current information or when a URL is given." else "Web access is turned OFF in this conversation. Do not claim to have browsed or searched; if the user needs current information, say it may be out of date and that they can turn on Live web."}
                                 2. Deep Analysis: For coding, provide clear, syntactically correct code blocks with language identifiers. For data analysis, explain statistics, trends, and interpretations clearly.
                                 3. Formatting: Use Markdown headers, tables, bullet points, and code blocks for clean readability.
                                 4. Memory: When user asks to remember something, acknowledge that it has been saved to your persistent memory.
@@ -1407,6 +1433,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectConversation(id: Int) {
         currentConversationId.value = id
+    }
+
+    fun renameConversation(id: Int, title: String) {
+        val clean = title.trim().take(80)
+        if (clean.isEmpty()) return
+        viewModelScope.launch { repository.renameConversation(id, clean) }
     }
 
     fun deleteConversation(context: Context, id: Int) {
