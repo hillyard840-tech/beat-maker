@@ -46,6 +46,11 @@ fun ModelSettingsDialog(
     val autoFallbackEnabled by viewModel.autoFallbackEnabled.collectAsStateWithLifecycle()
     val isLiveInternetEnabled by viewModel.isLiveInternetEnabled.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    val liveModels by ModelRegistry.models.collectAsStateWithLifecycle()
+    val modelLoadError by ModelRegistry.loadError.collectAsStateWithLifecycle()
+
+    // Load the real model list for this key when the dialog opens.
+    LaunchedEffect(Unit) { viewModel.refreshModels() }
 
     var selectedTab by remember { mutableIntStateOf(initialTab) }
     var categoryFilter by remember { mutableStateOf("All") }
@@ -143,13 +148,13 @@ fun ModelSettingsDialog(
                                 .padding(bottom = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf("All", "Flash", "Lite", "Pro").forEach { category ->
+                            listOf("All", "Flash", "Lite", "Pro", "Other").forEach { category ->
                                 FilterChip(
                                     selected = categoryFilter == category,
                                     onClick = { categoryFilter = category },
                                     label = {
                                         Text(
-                                            if (category == "Lite") "Lite (Quota-Friendly)" else category,
+                                            category,
                                             style = MaterialTheme.typography.labelSmall
                                         )
                                     }
@@ -171,7 +176,7 @@ fun ModelSettingsDialog(
                                     .weight(1f)
                                     .testTag("custom_model_input"),
                                 label = { Text("Custom Model ID") },
-                                placeholder = { Text("e.g. gemini-3.8-flash") },
+                                placeholder = { Text("e.g. gemini-flash-latest") },
                                 singleLine = true
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -189,9 +194,22 @@ fun ModelSettingsDialog(
                             }
                         }
 
-                        // Model List
-                        val filteredModels = ModelRegistry.AVAILABLE_MODELS.filter {
+                        // Model List (from the Gemini models.list API for this key)
+                        val filteredModels = liveModels.filter {
                             categoryFilter == "All" || it.category.equals(categoryFilter, ignoreCase = true)
+                        }
+                        modelLoadError?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (liveModels.isEmpty() && modelLoadError == null) {
+                            Text("Loading models available to your key…", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (liveModels.isNotEmpty() && liveModels.none { it.id == selectedModel } && !selectedModel.endsWith("-latest")) {
+                            Text(
+                                "The selected model \"$selectedModel\" isn't in your key's model list. Pick one below.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
 
                         LazyColumn(
@@ -235,7 +253,7 @@ fun ModelSettingsDialog(
                                                     }
                                                 ) {
                                                     Text(
-                                                        text = if (model.quotaFriendly) "QUOTA-FRIENDLY" else model.category.uppercase(),
+                                                        text = model.category.uppercase(),
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = when (model.category) {
@@ -331,7 +349,7 @@ fun ModelSettingsDialog(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "By default, the app uses the environment key. Enter your own personal or Pay-As-You-Go API key to increase your RPM and daily quota.",
+                                        text = "By default, the app uses the key built into the app (if any). Enter your own Gemini API key from Google AI Studio to use your own quota.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -421,10 +439,10 @@ fun ModelSettingsDialog(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "1. Enable Billing in Google AI Studio:\n" +
-                                                "   Free keys are rate-limited to 15 Requests/Min and per-day caps. Linking a Google Cloud billing account upgrades your key to Tier 1 Pay-As-You-Go with up to 1,000+ RPM and virtually unlimited daily quotas.\n\n" +
-                                                "2. Use Lite Models:\n" +
-                                                "   'gemini-3.5-flash-lite' and 'gemini-flash-lite-latest' use fewer quota units per prompt and have higher per-minute capacity.\n\n" +
+                                        text = "1. Enable billing in Google AI Studio:\n" +
+                                                "   Free keys have per-minute and per-day limits. Google lists the current limits for each tier on the AI Studio rate-limits page; billing-enabled keys get higher limits.\n\n" +
+                                                "2. Use Lite models:\n" +
+                                                "   Flash-Lite models (such as 'gemini-flash-lite-latest') are Google's lowest-cost option and usually have the most generous limits.\n\n" +
                                                 "3. Auto-Fallback:\n" +
                                                 "   Keep the Auto-Fallback switch ON above. When one model is temporarily busy or rate-limited, the app automatically reroutes through other available models.",
                                         style = MaterialTheme.typography.bodySmall,
@@ -511,7 +529,7 @@ fun ModelSettingsDialog(
                                     Text(
                                         text = "• Real-Time Web Search: Queries DuckDuckGo and Wikipedia organic indices live.\n" +
                                                 "• Live Page Extraction: Directly loads HTML and extracts clean article content via Jsoup.\n" +
-                                                "• Quota-Isolated: Operates via client-side function calling instead of Google grounding APIs, protecting you from 429 quota exhaustion.",
+                                                "• Runs on your device: searches and page loads are made by the app, not by Google Search grounding. Your search terms are sent to DuckDuckGo (and Wikipedia as a fallback).",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )

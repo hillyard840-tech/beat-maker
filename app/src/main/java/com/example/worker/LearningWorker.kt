@@ -14,7 +14,6 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val db = AppDatabase.getInstance(applicationContext)
-            val dao = db.messageDao()
             val skillDao = db.skillDao()
 
             val prefs = applicationContext.getSharedPreferences("omni_agent_prefs", Context.MODE_PRIVATE)
@@ -45,7 +44,7 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
 
             // Strictly use ultra-lightweight models for background tasks to conserve user quota
             var text: String? = null
-            val learningModels = listOf("gemini-3.5-flash-lite", "gemini-flash-lite-latest")
+            val learningModels = ModelRegistry.ALIAS_FALLBACKS
             for (model in learningModels) {
                 try {
                     val response = RetrofitClient.service.generateContent(model, apiKey, request)
@@ -58,27 +57,15 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
             }
 
             if (text != null) {
-                // Update chat
-                val message = Message(role = "model", text = "🧠 **Autonomous Learning Update [$topic]:**\n\n$text")
-                dao.insertMessage(message)
-                
-                // Update skill
+                // Store the real insight on the dashboard. "progress" counts insights collected;
+                // nothing here is invented or randomised.
                 val currentSkill = skillDao.getSkillByTopic(topic)
-                val newProgress = ((currentSkill?.progress ?: 0) + (10..25).random()).coerceAtMost(100)
-                
-                val level = when {
-                    newProgress < 30 -> "Beginner"
-                    newProgress < 60 -> "Intermediate"
-                    newProgress < 90 -> "Advanced"
-                    else -> "Expert"
-                }
-                
                 skillDao.insertOrUpdateSkill(
                     Skill(
                         topic = topic,
-                        progress = newProgress,
-                        level = level,
-                        lastInsight = if (text.length > 150) text.take(150) + "..." else text,
+                        progress = (currentSkill?.progress ?: 0) + 1,
+                        level = "",
+                        lastInsight = text.trim(),
                         updatedAt = System.currentTimeMillis()
                     )
                 )

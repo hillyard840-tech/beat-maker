@@ -10,6 +10,7 @@ data class Message(
     val text: String,
     val imagePath: String? = null,
     val projectId: Int? = null,
+    val conversationId: Int? = null,
     val fileAttachmentName: String? = null,
     val fileAttachmentType: String? = null,
     val isBookmarked: Boolean = false,

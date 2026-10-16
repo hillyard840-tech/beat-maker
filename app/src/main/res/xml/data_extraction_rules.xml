@@ -7,12 +7,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="omni_agent_prefs.xml" />
-        <exclude domain="sharedpref" path="moltbook_agent_prefs.xml" />
-        <exclude domain="sharedpref" path="seekclaw_prefs.xml" />
+        <exclude domain="sharedpref" path="moltbook_credentials.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="omni_agent_prefs.xml" />
-        <exclude domain="sharedpref" path="moltbook_agent_prefs.xml" />
-        <exclude domain="sharedpref" path="seekclaw_prefs.xml" />
+        <exclude domain="sharedpref" path="moltbook_credentials.xml" />
     </device-transfer>
 </data-extraction-rules>

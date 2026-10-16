@@ -16,8 +16,8 @@ import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
 import com.example.ui.VoiceModeOverlay
-import com.example.ui.moltbook.MoltbookHubScreen
-import com.example.ui.seekclaw.SeekClawHubScreen
+import com.example.ui.clawearn.ClawEarnScreen
+import com.example.ui.moltbook.MoltbookScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -49,14 +49,13 @@ class MainActivity : ComponentActivity() {
 
                 var showDashboard by remember { mutableStateOf(false) }
                 val isMoltbookOpen by viewModel.isMoltbookOpen.collectAsStateWithLifecycle()
-                val isSeekClawOpen by viewModel.isSeekClawOpen.collectAsStateWithLifecycle()
+                val isClawEarnOpen by viewModel.isClawEarnOpen.collectAsStateWithLifecycle()
                 val isCanvasOpen by viewModel.isCanvasOpen.collectAsStateWithLifecycle()
                 val isVoiceModeOpen by viewModel.isVoiceModeOpen.collectAsStateWithLifecycle()
 
                 when {
                     isMoltbookOpen -> {
-                        MoltbookHubScreen(
-                            viewModel = viewModel,
+                        MoltbookScreen(
                             onClose = { viewModel.closeMoltbook() },
                             onOpenInCanvas = { title, content ->
                                 viewModel.closeMoltbook()
@@ -64,15 +63,8 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
-                    isSeekClawOpen -> {
-                        SeekClawHubScreen(
-                            viewModel = viewModel,
-                            onClose = { viewModel.closeSeekClaw() },
-                            onOpenInCanvas = { title, content ->
-                                viewModel.closeSeekClaw()
-                                viewModel.openCanvas(title, content, "markdown")
-                            }
-                        )
+                    isClawEarnOpen -> {
+                        ClawEarnScreen(onClose = { viewModel.closeClawEarn() })
                     }
                     isCanvasOpen -> {
                         CanvasScreen(
@@ -84,9 +76,9 @@ class MainActivity : ComponentActivity() {
                         DashboardScreen(
                             viewModel = viewModel,
                             onBack = { showDashboard = false },
-                            onOpenSeekClaw = {
+                            onOpenClawEarn = {
                                 showDashboard = false
-                                viewModel.openSeekClaw()
+                                viewModel.openClawEarn()
                             },
                             onOpenMoltbook = {
                                 showDashboard = false
@@ -98,7 +90,7 @@ class MainActivity : ComponentActivity() {
                         ChatScreen(
                             viewModel = viewModel,
                             onDashboardClick = { showDashboard = true },
-                            onSeekClawClick = { viewModel.openSeekClaw() },
+                            onClawEarnClick = { viewModel.openClawEarn() },
                             onMoltbookClick = { viewModel.openMoltbook() }
                         )
                     }
@@ -108,8 +100,8 @@ class MainActivity : ComponentActivity() {
                 if (showClearHistoryConfirm) {
                     AlertDialog(
                         onDismissRequest = { viewModel.showClearHistoryConfirm.value = false },
-                        title = { Text("Clear this conversation?") },
-                        text = { Text("All messages and attached images in the current workspace will be permanently deleted.") },
+                        title = { Text("Delete this chat?") },
+                        text = { Text("All messages and attached images in this chat will be permanently deleted. Your other chats are kept.") },
                         confirmButton = {
                             TextButton(onClick = { viewModel.clearHistory(applicationContext) }) {
                                 Text("Delete")

@@ -51,7 +51,6 @@ object DeepResearchService {
                 step = 1,
                 newLog = "📋 Formulating multi-angle research strategy for: \"$query\""
             )
-            delay(600)
 
             val restrictedClause = if (siteRestrictions.isNotBlank()) " restricting/prioritizing sites: $siteRestrictions" else ""
             logs.add("🎯 Objectives defined$restrictedClause")
@@ -79,11 +78,11 @@ object DeepResearchService {
                         logs.add("🌐 Discovered: ${r.title.take(45)}... (${r.url.substringAfter("://").take(30)})")
                     }
                 }
-                delay(300)
+                delay(300) // be polite to the search engine between queries
             }
 
             if (allSources.isEmpty()) {
-                logs.add("⚠️ Direct organic crawl returned sparse results, expanding to secondary knowledge index...")
+                logs.add("⚠️ The web search returned no results; the report will rely on the model's own knowledge and say so.")
             }
 
             // STEP 3: Deep Document Analysis & Synthesis
@@ -98,7 +97,6 @@ object DeepResearchService {
                 logs.add("⚡ Reading page: ${source.title.take(40)}...")
                 val page = LiveInternetService.fetchLiveWebpage(source.url, maxChars = 3500)
                 retrievedPages.add(page)
-                delay(200)
             }
 
             // STEP 4: Synthesizing Structured Deep Research Report
@@ -145,8 +143,9 @@ object DeepResearchService {
                 ## 💡 Actionable Strategic Recommendations
                 - Concrete, step-by-step guidance for the user based on the evidence.
                 
-                ## 📚 Verified Sources & Citations
-                - Bulleted list of every source examined with clickable markdown links [Title](URL) and key takeaway from each.
+                ## 📚 Sources
+                - Bulleted list of the sources in the dossier below with markdown links [Title](URL) and the key takeaway from each.
+                - Only cite URLs that appear in the dossier. Never invent sources, statistics, or quotes. If the dossier has no usable sources, say so clearly at the top of the report.
                 
                 $researchCorpus
             """.trimIndent()
@@ -174,7 +173,7 @@ object DeepResearchService {
             update(
                 phase = "Deep Research Completed",
                 step = 4,
-                newLog = "✅ Deep Research Report generated successfully with ${allSources.size} citations.",
+                newLog = "✅ Report generated from ${retrievedPages.count { !it.title.startsWith("Error loading") && it.title != "Blocked URL" }} pages read (${allSources.size} search results).",
                 isDone = true,
                 report = reportText
             )

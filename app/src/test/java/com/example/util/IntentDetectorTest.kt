@@ -38,4 +38,21 @@ class IntentDetectorTest {
     fun `plain questions stay standard`() {
         assertEquals(RoutedIntent.STANDARD, IntentDetector.detect("Explain how a hash map works").intent)
     }
+
+    @Test
+    fun `common words alone do not trigger a web search`() {
+        listOf(
+            "What is the current best practice for Kotlin coroutines?",
+            "Explain how live templates work in Android Studio",
+            "Now write me a poem"
+        ).forEach { prompt ->
+            assertEquals(prompt, RoutedIntent.STANDARD, IntentDetector.detect(prompt).intent)
+        }
+    }
+
+    @Test
+    fun `routes explicit integration requests`() {
+        assertEquals(RoutedIntent.MOLTBOOK, IntentDetector.detect("open moltbook").intent)
+        assertEquals(RoutedIntent.CLAW_EARN, IntentDetector.detect("show me claw earn tasks").intent)
+    }
 }

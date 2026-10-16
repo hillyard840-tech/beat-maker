@@ -14,9 +14,11 @@ import retrofit2.Retrofit
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.example.BuildConfig
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 @Serializable
@@ -115,8 +117,16 @@ interface GeminiApiService {
     suspend fun generateContentStream(
         @Path("model") model: String,
         @Header(API_KEY_HEADER) apiKey: String,
-        @Body request: GenerateContentRequest
+        @Body request: GenerateContentRequest,
+        @Query("alt") alt: String = "sse"
     ): ResponseBody
+
+    @GET("v1beta/models")
+    suspend fun listModels(
+        @Header(API_KEY_HEADER) apiKey: String,
+        @Query("pageSize") pageSize: Int,
+        @Query("pageToken") pageToken: String?
+    ): ListModelsResponse
 
     @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(

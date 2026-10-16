@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -58,12 +59,13 @@ import java.io.File
 fun ChatScreen(
     viewModel: ChatViewModel = viewModel(),
     onDashboardClick: () -> Unit = {},
-    onSeekClawClick: () -> Unit = { viewModel.openSeekClaw() },
+    onClawEarnClick: () -> Unit = { viewModel.openClawEarn() },
     onMoltbookClick: () -> Unit = { viewModel.openMoltbook() }
 ) {
     val messages by viewModel.displayedMessages.collectAsStateWithLifecycle()
     val rawMessages by viewModel.messages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val selectedModel by viewModel.selectedModel.collectAsStateWithLifecycle()
     val isLiveInternetEnabled by viewModel.isLiveInternetEnabled.collectAsStateWithLifecycle()
     val isAutoRoutingEnabled by viewModel.isAutoRoutingEnabled.collectAsStateWithLifecycle()
@@ -107,10 +109,20 @@ fun ChatScreen(
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showDiagnosticDialog by remember { mutableStateOf(false) }
     var showOperationalStateDialog by remember { mutableStateOf(false) }
+    var showChatsDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    // Widget "camera" button: open the visual-diagnostics picker.
+    val visualDiagnosticsRequested by viewModel.showVisualDiagnostics.collectAsStateWithLifecycle()
+    LaunchedEffect(visualDiagnosticsRequested) {
+        if (visualDiagnosticsRequested) {
+            showDiagnosticDialog = true
+            viewModel.showVisualDiagnostics.value = false
+        }
+    }
 
     // Sync pending input text (from template insertion)
     LaunchedEffect(pendingInputText) {
@@ -252,9 +264,21 @@ fun ChatScreen(
         )
     }
 
+    if (showChatsDialog) {
+        ChatsDialog(viewModel = viewModel, onDismiss = { showChatsDialog = false })
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    IconButton(
+                        onClick = { showChatsDialog = true },
+                        modifier = Modifier.testTag("chats_button")
+                    ) {
+                        Icon(Icons.Default.Menu, contentDescription = "Chats")
+                    }
+                },
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically
@@ -540,11 +564,11 @@ fun ChatScreen(
                     label = { Text("Moltbook", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 )
 
-                // SeekClaw Agent Marketplace Chip
+                // Claw Earn public task board (read-only)
                 AssistChip(
-                    onClick = onSeekClawClick,
+                    onClick = onClawEarnClick,
                     leadingIcon = { Text("💼", fontSize = 14.sp) },
-                    label = { Text("SeekClaw", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    label = { Text("Claw Earn", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 )
 
                 // Prompt Templates & Personas
@@ -584,7 +608,14 @@ fun ChatScreen(
             }
 
             // Message List
+            val listState = rememberLazyListState()
+            // Follow new messages and the live streaming reply.
+            LaunchedEffect(messages.size, streamingText?.length) {
+                val total = listState.layoutInfo.totalItemsCount
+                if (total > 0) listState.scrollToItem(total - 1)
+            }
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -641,7 +672,12 @@ fun ChatScreen(
                         }
                     )
                 }
-                if (isLoading) {
+                streamingText?.let { partial ->
+                    item(key = "streaming_reply") {
+                        MessageBubble(message = Message(role = "model", text = partial))
+                    }
+                }
+                if (isLoading && streamingText == null) {
                     item {
                         Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
@@ -1558,34 +1594,6 @@ fun OperationalStateDialog(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
                         color = if (areTasksPaused) Color(0xFFE65100) else if (isLearningModeEnabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("🦞 Moltbook Agent Sync:", style = MaterialTheme.typography.bodySmall)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = if (areTasksPaused) "Paused" else "Online (30m heartbeat)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = if (areTasksPaused) Color(0xFFE65100) else Color(0xFF2E7D32)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("💼 SeekClaw Marketplace:", style = MaterialTheme.typography.bodySmall)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = if (areTasksPaused) "Paused" else "Online (Escrow Guarded)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = if (areTasksPaused) Color(0xFFE65100) else Color(0xFF2E7D32)
                     )
                 }
             }

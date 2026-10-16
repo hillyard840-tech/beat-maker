@@ -1,81 +1,117 @@
 package com.example.api
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
+
 data class GeminiModel(
     val id: String,
     val name: String,
-    val category: String, // "Flash", "Lite", "Pro"
-    val description: String,
-    val quotaFriendly: Boolean = false
+    val category: String, // "Flash", "Lite", "Pro", "Other"
+    val description: String
 )
 
-object ModelRegistry {
-    val AVAILABLE_MODELS = listOf(
-        GeminiModel(
-            id = "gemini-3.5-flash-lite",
-            name = "Gemini 3.5 Flash Lite",
-            category = "Lite",
-            description = "Lightweight & quota-optimized for high-frequency chats",
-            quotaFriendly = true
-        ),
-        GeminiModel(
-            id = "gemini-flash-lite-latest",
-            name = "Gemini Flash Lite Latest",
-            category = "Lite",
-            description = "Dynamic pointer to the latest lightweight flash-lite build",
-            quotaFriendly = true
-        ),
-        GeminiModel(
-            id = "gemini-3.5-flash",
-            name = "Gemini 3.5 Flash",
-            category = "Flash",
-            description = "Balanced multimodal foundation model with high quota allowance"
-        ),
-        GeminiModel(
-            id = "gemini-3.7-flash",
-            name = "Gemini 3.7 Flash",
-            category = "Flash",
-            description = "High-speed flagship with strong reasoning and coding abilities"
-        ),
-        GeminiModel(
-            id = "gemini-3.8-flash",
-            name = "Gemini 3.8 Flash",
-            category = "Flash",
-            description = "Latest high-speed multimodal model with cutting-edge capabilities"
-        ),
-        GeminiModel(
-            id = "gemini-3.6-flash",
-            name = "Gemini 3.6 Flash",
-            category = "Flash",
-            description = "Reliable standard model for versatile general tasks"
-        ),
-        GeminiModel(
-            id = "gemini-flash-latest",
-            name = "Gemini Flash Latest",
-            category = "Flash",
-            description = "Dynamic alias that automatically points to the latest stable flash"
-        ),
-        GeminiModel(
-            id = "gemini-3.1-flash-lite-preview",
-            name = "Gemini 3.1 Flash Lite",
-            category = "Lite",
-            description = "Ultra-fast preview lite model with minimal token overhead",
-            quotaFriendly = true
-        ),
-        GeminiModel(
-            id = "gemini-3.1-pro-preview",
-            name = "Gemini 3.1 Pro Preview",
-            category = "Pro",
-            description = "Deep reasoning, complex STEM, and advanced logic analysis"
-        )
-    )
+@Serializable
+data class ApiModel(
+    val name: String,
+    val displayName: String? = null,
+    val description: String? = null,
+    val supportedGenerationMethods: List<String> = emptyList()
+)
 
-    // Ordered by quota resilience: Lite and standard models first to recover rapidly from 429
-    val FALLBACK_CANDIDATES = listOf(
-        "gemini-3.5-flash-lite",
-        "gemini-flash-lite-latest",
-        "gemini-3.5-flash",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3.8-flash"
-    )
+@Serializable
+data class ListModelsResponse(
+    val models: List<ApiModel> = emptyList(),
+    val nextPageToken: String? = null
+)
+
+/**
+ * The model list comes from the Gemini API itself (models.list), so only models that actually
+ * exist for the user's key are offered. Nothing is hardcoded except Google's documented
+ * "-latest" aliases, used before the list has loaded.
+ */
+object ModelRegistry {
+    /** Google-maintained aliases that always point at the current Flash / Flash-Lite release. */
+    const val DEFAULT_MODEL = "gemini-flash-lite-latest"
+    val ALIAS_FALLBACKS = listOf("gemini-flash-lite-latest", "gemini-flash-latest")
+
+    private val _models = MutableStateFlow<List<GeminiModel>>(emptyList())
+    val models: StateFlow<List<GeminiModel>> = _models.asStateFlow()
+
+    /** Imagen models (method "predict") available to this key, newest first. */
+    private val _imageModels = MutableStateFlow<List<String>>(emptyList())
+    val imageModels: StateFlow<List<String>> = _imageModels.asStateFlow()
+
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError.asStateFlow()
+
+    suspend fun refresh(apiKey: String) {
+        if (apiKey.isBlank()) {
+            _loadError.value = "Add an API key to load the models available to you."
+            return
+        }
+        try {
+            val all = mutableListOf<ApiModel>()
+            var pageToken: String? = null
+            do {
+                val page = RetrofitClient.service.listModels(apiKey, 1000, pageToken)
+                all += page.models
+                pageToken = page.nextPageToken?.takeIf { it.isNotBlank() }
+            } while (pageToken != null)
+            _models.value = toChatModels(all)
+            _imageModels.value = toImageModels(all)
+            _loadError.value = null
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            _loadError.value = "Couldn't load models: ${e.message}"
+        }
+    }
+
+    /** Keeps Gemini models that support generateContent, newest-looking names first. */
+    fun toChatModels(apiModels: List<ApiModel>): List<GeminiModel> =
+        apiModels
+            .filter { "generateContent" in it.supportedGenerationMethods }
+            .map { m ->
+                val id = m.name.removePrefix("models/")
+                GeminiModel(
+                    id = id,
+                    name = m.displayName?.takeIf { it.isNotBlank() } ?: id,
+                    category = categoryOf(id),
+                    description = m.description.orEmpty()
+                )
+            }
+            .filter { it.id.startsWith("gemini") && !it.id.contains("embedding") }
+            .distinctBy { it.id }
+            .sortedByDescending { it.id }
+
+    fun toImageModels(apiModels: List<ApiModel>): List<String> =
+        apiModels
+            .filter { "predict" in it.supportedGenerationMethods }
+            .map { it.name.removePrefix("models/") }
+            .filter { it.startsWith("imagen") }
+            .distinct()
+            .sortedDescending()
+
+    fun categoryOf(id: String): String = when {
+        id.contains("lite") -> "Lite"
+        id.contains("pro") -> "Pro"
+        id.contains("flash") -> "Flash"
+        else -> "Other"
+    }
+
+    /**
+     * Models to try when [failedModel] is rate-limited: lighter models first, only ones the API
+     * reported as available (or the official aliases if the list hasn't loaded).
+     */
+    fun fallbackCandidates(failedModel: String): List<String> {
+        val live = _models.value
+        val ordered = if (live.isEmpty()) {
+            ALIAS_FALLBACKS
+        } else {
+            val text = live.filter { !it.id.contains("image") && !it.id.contains("tts") && !it.id.contains("live") }
+            text.filter { it.category == "Lite" }.map { it.id } + text.filter { it.category == "Flash" }.map { it.id }
+        }
+        return ordered.filter { it != failedModel }.distinct().take(4)
+    }
 }

@@ -10,8 +10,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.api.*
 import com.example.data.*
-import com.example.data.moltbook.*
-import com.example.data.seekclaw.*
 import com.example.util.*
 import com.example.worker.LearningWorker
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +38,7 @@ enum class AgentOperationalState(
     ),
     LEARNING_MODE(
         displayName = "Learning Mode",
-        description = "Autonomous skill acquisition is running in background",
+        description = "Periodic background insight requests to Gemini are scheduled",
         isPulsing = true
     ),
     RESEARCHING(
@@ -65,7 +63,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getInstance(application)
 
-    private val repository = MessageRepository(db.messageDao(), db.memoryDao(), db.projectDao())
+    init {
+        // Earlier versions kept simulated Moltbook/SeekClaw state (including a fake API key) in
+        // these files. Remove them so no simulated data survives the upgrade.
+        listOf("moltbook_agent_prefs", "seekclaw_prefs").forEach { application.deleteSharedPreferences(it) }
+    }
+
+    private val repository = MessageRepository(db.messageDao(), db.memoryDao(), db.projectDao(), db.conversationDao())
     val skills: StateFlow<List<Skill>> = db.skillDao().getAllSkills().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // Projects Workspace (Feature 12)
@@ -74,10 +78,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val currentProject = MutableStateFlow<Project?>(null)
 
     // Context & History per Project (Features 1 & 12)
+    // Separate chats: null means "new chat" (created lazily when the first message is sent).
+    val currentConversationId = MutableStateFlow<Int?>(null)
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val messages: StateFlow<List<Message>> = currentProject.flatMapLatest { proj ->
-        repository.getMessagesForProject(proj?.id)
+    val conversations: StateFlow<List<Conversation>> = currentProject.flatMapLatest { proj ->
+        repository.conversationsForProject(proj?.id)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val messages: StateFlow<List<Message>> = currentConversationId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList<Message>()) else repository.messagesForConversation(id)
+    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    init {
+        // Reopen the most recent chat of the default workspace.
+        viewModelScope.launch {
+            currentConversationId.value = repository.latestConversation(null)?.id
+        }
+    }
 
     // Search & Bookmarking (Feature 4)
     val searchQuery = MutableStateFlow("")
@@ -134,35 +153,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val canvasLanguage = MutableStateFlow("markdown")
     val isCanvasLoading = MutableStateFlow(false)
 
-    // SeekClaw Autonomous Agent Marketplace
-    private val seekClawRepo = SeekClawRepository(application)
-    val isSeekClawOpen = MutableStateFlow(false)
-    val seekClawProfile = seekClawRepo.profile
-    val seekClawJobs = seekClawRepo.jobs
-    val seekClawApplications = seekClawRepo.applications
-    val seekClawContracts = seekClawRepo.contracts
-    val seekClawSubmissions = seekClawRepo.submissions
-    val seekClawChallenges = seekClawRepo.challenges
-    val seekClawPosts = seekClawRepo.posts
-
-    // Claw Earn on Base (Chain ID 8453)
-    val clawEarnHealth = seekClawRepo.clawEarnHealth
-    val clawEarnTasks = seekClawRepo.clawEarnTasks
-    val clawEarnCounts = seekClawRepo.clawEarnCounts
-    val clawEarnActiveTab = seekClawRepo.clawEarnActiveTab
-    val clawEarnSelectedContract = seekClawRepo.clawEarnSelectedContract
-    val clawEarnWatcher = seekClawRepo.clawEarnWatcher
-    val clawEarnExecutionLogs = seekClawRepo.clawEarnExecutionLogs
-
-    // Moltbook AI Agent Social Network
-    private val moltbookRepo = MoltbookRepository(application)
+    // Real third-party integrations (each screen owns its own ViewModel and live API calls)
     val isMoltbookOpen = MutableStateFlow(false)
-    val moltbookProfile = moltbookRepo.agentProfile
-    val moltbookPosts = moltbookRepo.posts
-    val moltbookSubmolts = moltbookRepo.submolts
-    val moltbookHomeData = moltbookRepo.homeData
-    val moltbookFollowing = moltbookRepo.followingMoltys
-    val moltbookLastHeartbeat = moltbookRepo.lastHeartbeat
+    val isClawEarnOpen = MutableStateFlow(false)
 
     // UI Dialog & Sheet states
     val showMemoryDialog = MutableStateFlow(false)
@@ -170,12 +163,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val showDataAnalysisSheet = MutableStateFlow(false)
     val showImageGenDialog = MutableStateFlow(false)
     val showClearHistoryConfirm = MutableStateFlow(false)
+    val showVisualDiagnostics = MutableStateFlow(false)
 
     val isLoading = MutableStateFlow(false)
 
-    // Default to the highly quota-resilient Lite model
+    /** Text of the reply while it is still streaming in; null when nothing is streaming. */
+    val streamingText = MutableStateFlow<String?>(null)
+
+    // Default to Google's Flash-Lite alias, which always points at a model that exists.
     val selectedModel = MutableStateFlow(
-        prefs.getString("selected_model", "gemini-3.5-flash-lite") ?: "gemini-3.5-flash-lite"
+        prefs.getString("selected_model", ModelRegistry.DEFAULT_MODEL) ?: ModelRegistry.DEFAULT_MODEL
     )
 
     val customApiKey = MutableStateFlow(
@@ -236,12 +233,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun switchToLiteModel() {
-        updateModel("gemini-3.5-flash-lite")
+        updateModel(ModelRegistry.fallbackCandidates(selectedModel.value).firstOrNull() ?: ModelRegistry.DEFAULT_MODEL)
     }
 
     fun updateCustomApiKey(key: String) {
         customApiKey.value = key
         prefs.edit().putString("custom_api_key", key).apply()
+        refreshModels()
+    }
+
+    /** Loads the models this API key can actually use (Gemini models.list). */
+    fun refreshModels() {
+        viewModelScope.launch { ModelRegistry.refresh(getEffectiveApiKey()) }
     }
 
     fun updateAutoFallback(enabled: Boolean) {
@@ -310,18 +313,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 description = description.trim(),
                 customInstructions = customInstructions.trim()
             )
+            currentConversationId.value = null
         }
     }
 
     fun selectProject(project: Project?) {
         currentProject.value = project
+        viewModelScope.launch {
+            currentConversationId.value = repository.latestConversation(project?.id)?.id
+        }
     }
 
     fun deleteProject(project: Project) {
         viewModelScope.launch {
+            val imagePaths = repository.imagePathsForProject(project.id)
             repository.deleteProject(project)
+            withContext(Dispatchers.IO) { ImageUtils.deleteImages(getApplication(), imagePaths) }
             if (currentProject.value?.id == project.id) {
-                currentProject.value = null
+                selectProject(null)
             }
         }
     }
@@ -360,7 +369,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun applyPersona(template: PromptTemplate) {
         activePersona.value = template
         viewModelScope.launch {
-            repository.insert(
+            postMessage(
                 Message(
                     role = "model",
                     text = "🎭 **Persona Activated: ${template.title}**\n\n*${template.defaultSystemPersona ?: template.description}*",
@@ -456,16 +465,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 isVoiceModeOpen.value = true
             }
             "camera_diagnostic" -> {
-                // Trigger camera diagnostic in chat
-                showImageGenDialog.value = false
+                // Show the chat screen with the visual-diagnostics picker open.
+                isMoltbookOpen.value = false
+                isClawEarnOpen.value = false
+                isCanvasOpen.value = false
+                showVisualDiagnostics.value = true
             }
             "deep_research" -> {
                 isDeepResearchOpen.value = true
             }
             "new_chat" -> {
-                // MainActivity is exported, so any app can send this extra. Never wipe history
-                // without the user confirming it on screen.
-                requestClearHistory()
+                // Starts a fresh chat; earlier chats are kept.
+                newChat()
             }
         }
     }
@@ -548,9 +559,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // DEEP RESEARCH (Feature 3)
     fun runDeepResearch(query: String, siteRestrictions: String = "") {
         viewModelScope.launch {
+            val chatId = ensureConversationId()
             val apiKey = getEffectiveApiKey()
             if (apiKey.isEmpty()) {
-                repository.insert(
+                insertInto(chatId,
                     Message(
                         role = "model",
                         text = "⚠️ **API Key Required**: Please provide your Gemini API key to run Deep Research.",
@@ -572,14 +584,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             // Save the report into current conversation
-            repository.insert(
+            insertInto(chatId,
                 Message(
                     role = "user",
                     text = "🔬 Deep Research: $query",
                     projectId = currentProject.value?.id
                 )
             )
-            repository.insert(
+            insertInto(chatId,
                 Message(
                     role = "model",
                     text = finalReport,
@@ -596,10 +608,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // IMAGE GENERATION (Feature 7)
     fun generateImage(context: Context, prompt: String) {
         viewModelScope.launch {
+            val chatId = ensureConversationId()
             val apiKey = getEffectiveApiKey()
             isLoading.value = true
 
-            repository.insert(
+            insertInto(chatId,
                 Message(
                     role = "user",
                     text = "🎨 Generate Image: \"$prompt\"",
@@ -608,18 +621,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             try {
-                val (imagePath, attribution) = ImageGenService.generateImage(context, prompt, apiKey)
-                repository.insert(
-                    Message(
+                val result = ImageGenService.generateImage(context, prompt, apiKey)
+                val reply = when (result) {
+                    is ImageGenResult.Success -> Message(
                         role = "model",
-                        text = "✨ Image created for: \"$prompt\"\n*($attribution)*",
-                        imagePath = imagePath,
+                        text = "✨ Image created for: \"$prompt\"\n*(Generated with `${result.model}`)*",
+                        imagePath = result.imagePath,
                         projectId = currentProject.value?.id
                     )
-                )
+                    is ImageGenResult.Failure -> Message(
+                        role = "model",
+                        text = "⚠️ **Image not generated**\n\n${result.reason}",
+                        projectId = currentProject.value?.id
+                    )
+                }
+                insertInto(chatId, reply)
             } catch (e: Exception) {
                 e.printStackTrace()
-                repository.insert(
+                insertInto(chatId,
                     Message(
                         role = "model",
                         text = "Error: image generation failed (${e.message})",
@@ -639,7 +658,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (paused) {
             workManager.cancelUniqueWork("AutonomousLearning")
             viewModelScope.launch {
-                repository.insert(
+                postMessage(
                     Message(
                         role = "model",
                         text = "⏸️ **Background Tasks Paused**\n\nAutonomous learning loops, scheduled workers, and background sync have been suspended. Toggle the switch to resume at any time.",
@@ -658,7 +677,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             viewModelScope.launch {
-                repository.insert(
+                postMessage(
                     Message(
                         role = "model",
                         text = "▶️ **Background Tasks Resumed**\n\nOperational routines and background services are active.",
@@ -683,17 +702,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     workRequest
                 )
                 viewModelScope.launch {
-                    repository.insert(Message(role = "model", text = "🔋 Autonomous Learning Mode initialized. Research will occur conservatively every 3 hours.", projectId = currentProject.value?.id))
+                    postMessage(Message(role = "model", text = "🔋 Learning Mode on. Kora will ask Gemini for one short insight about every 3 hours (each one uses one request from your API quota). Insights appear on the Dashboard.", projectId = currentProject.value?.id))
                 }
             } else {
                 viewModelScope.launch {
-                    repository.insert(Message(role = "model", text = "🔋 Autonomous Learning Mode enabled (currently paused by background tasks switch).", projectId = currentProject.value?.id))
+                    postMessage(Message(role = "model", text = "🔋 Autonomous Learning Mode enabled (currently paused by background tasks switch).", projectId = currentProject.value?.id))
                 }
             }
         } else {
             workManager.cancelUniqueWork("AutonomousLearning")
             viewModelScope.launch {
-                repository.insert(Message(role = "model", text = "🔌 Autonomous Learning Mode disabled.", projectId = currentProject.value?.id))
+                postMessage(Message(role = "model", text = "🔌 Autonomous Learning Mode disabled.", projectId = currentProject.value?.id))
             }
         }
     }
@@ -714,7 +733,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val imagePath = ImageUtils.copyUriToInternalStorage(getApplication(), imageUri)
             if (imagePath == null && text.isBlank()) {
-                repository.insert(
+                postMessage(
                     Message(
                         role = "model",
                         text = "⚠️ The selected image could not be read. Please try a different image.",
@@ -729,131 +748,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendMessage(text: String, imagePath: String?) {
         viewModelScope.launch {
-            // SeekClaw Rule 1: Owner Privacy Protection check
-            val ownerPrivacyTriggers = listOf(
-                Regex("""\b(?:owner(?:'s)?\s+(?:real\s+name|identity|phone|email|address|bank|ssn|credit\s+card|private\s+info))\b""", RegexOption.IGNORE_CASE),
-                Regex("""\b(?:who\s+owns\s+you|who\s+is\s+your\s+owner|reveal\s+your\s+owner|owner's\s+credentials)\b""", RegexOption.IGNORE_CASE)
-            )
-            if (ownerPrivacyTriggers.any { it.containsMatchIn(text) }) {
-                repository.insert(Message(role = "user", text = text, projectId = currentProject.value?.id))
-                repository.insert(Message(role = "model", text = "I cannot disclose my owner's private information. This is protected under my security policy.", projectId = currentProject.value?.id))
-                return@launch
-            }
-
             val detected = if (isAutoRoutingEnabled.value) {
                 IntentDetector.detect(text, hasAttachedDataset = attachedFile.value?.isTabularData == true)
             } else {
                 IntentDetector.DetectionResult(IntentDetector.RoutedIntent.STANDARD)
             }
 
-            // 0. Automatic Moltbook Intent
+            // 0. Open the real Moltbook / Claw Earn screens. Nothing is posted automatically.
             if (detected.intent == IntentDetector.RoutedIntent.MOLTBOOK) {
                 openMoltbook()
-                repository.insert(Message(role = "user", text = text, projectId = currentProject.value?.id))
-                repository.insert(Message(
-                    role = "model",
-                    text = "🦞 **Opening Moltbook AI Agent Social Network...**\n\n• **Molty Handle:** `@${moltbookProfile.value.name}`\n• **Karma:** **${moltbookProfile.value.karma}** (Verified Molty)\n• **Subscribed Communities:** ${moltbookSubmolts.value.count { it.isSubscribed }} active submolts\n• **Unread Notifications:** ${moltbookHomeData.value?.unreadNotifications ?: 0}\n• **Status:** ${if (moltbookProfile.value.isClaimed) "✅ Claimed by Human Owner" else "⚠️ Pending Claim"}\n\n*All API keys are securely protected and restricted strictly to https://www.moltbook.com.*",
-                    projectId = currentProject.value?.id
-                ))
                 return@launch
             }
-
-            // 0.05 Automatic Claw Earn on Base Intent (OpenClaw skill & claw-earn.json runbook)
-            if (text.contains("claw-earn", ignoreCase = true) ||
-                text.contains("claw earn", ignoreCase = true) ||
-                (text.startsWith("/run", ignoreCase = true) && (text.contains("claw", ignoreCase = true) || text.contains("openclaw", ignoreCase = true)))) {
-
-                repository.insert(Message(role = "user", text = text, projectId = currentProject.value?.id))
-                isLoading.value = true
-                liveInternetStatus.value = "Scanning Base L2 contracts..."
-                try {
-                    // 1. Scan Base L2
-                    seekClawRepo.executeClawEarnScan()
-                    val health = seekClawRepo.clawEarnHealth.value
-                    val (occupiedTasks, _) = ClawEarnService.getTasks("occupied")
-                    val occupiedTask = occupiedTasks.firstOrNull()
-
-                    // 2. Start Bounded Watcher Loop (SKILL.md Section 4)
-                    seekClawRepo.startClawEarnWatcher(
-                        taskId = occupiedTask?.taskId,
-                        contractAddress = occupiedTask?.contractAddress
-                    )
-
-                    // 3. Deliverable synthesis for occupied task if available
-                    var deliverableNotice = ""
-                    if (occupiedTask != null && occupiedTask.title.contains("MoltBook", ignoreCase = true)) {
-                        val result = seekClawRepo.takeAndExecuteClawTask(occupiedTask) { postContent ->
-                            moltbookRepo.createPost(
-                                submoltName = "general",
-                                title = "Hello MoltBook!!!",
-                                content = "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
-                            )
-                            "Hello MoltBook!!! Autonomous agent verification submission for Claw Earn Task #${occupiedTask.taskId} on Base L2."
-                        }
-                        deliverableNotice = "\n\n🎯 **Autonomous Deliverable Synthesized for Task #${occupiedTask.taskId}:**\n" +
-                            "• **Action Taken:** Created a post in the in-app Moltbook simulation (not the real moltbook.com).\n" +
-                            "• **Status:** Draft only. Nothing was submitted to Claw Earn and no payment was claimed."
-                    }
-
-                    val counts = seekClawRepo.clawEarnCounts.value
-                    val responseMessage = buildString {
-                        appendLine("🦞 **Claw Earn on Base Network (Chain ID 8453) — Autonomous Execution**")
-                        appendLine()
-                        appendLine("ℹ️ Task data below is read live from aiagentstore.ai. Task execution in this app is **simulated**: no wallet is connected, nothing is submitted on-chain, and no USDC is earned.")
-                        appendLine()
-                        appendLine("### 📋 Protocol & Architecture Runbook:")
-                        appendLine("1. **Canonical Routes Only:** Direct contract calls are strictly unsupported per OpenClaw policy; all queries and state transitions route through `/claw/*` and `/agent*` session endpoints to preserve metadata/submission sync.")
-                        appendLine("2. **Session Authentication:** Generates non-custodial wallet challenges via `POST /clawAgentSessionChallenge` and resolves `agentSessionToken` via `POST /clawAgentSession`.")
-                        appendLine("3. **Bounded Watcher Daemon:** Polling loop active (60s cycle, `light=true`, full parity poll every 5 cycles) tracking task state signals and heartbeat.")
-                        appendLine("4. **Task Scoping:** IDs persist as `(taskId, contractAddress)` pairs across Base contracts.")
-                        appendLine()
-                        appendLine("### 🛰️ Base L2 On-Chain Telemetry:")
-                        appendLine("• **EVM Chain ID:** Base Mainnet (`8453`)")
-                        appendLine("• **Indexer Status:** ${if (health.ok) "✅ Synchronized" else "⚠️ Syncing"} (Latest Block: `#${health.latestBlock}`)")
-                        appendLine("• **Active Contracts (${health.contracts.size}):**")
-                        health.contracts.forEach { appendLine("  - `$it`") }
-                        appendLine()
-                        appendLine("### 📊 Live Marketplace Inventory:")
-                        appendLine("• **Available for Staking:** **${counts.first} tasks** (0 open bounties)")
-                        appendLine("• **Occupied / Review Window:** **${counts.second} task**")
-                        appendLine("• **Completed Bounties:** **${counts.third} tasks** (Historical archive)")
-                        if (occupiedTask != null) {
-                            appendLine()
-                            appendLine("### 🔍 Live Occupied Bounty Inspection:")
-                            appendLine("• **Task:** ${occupiedTask.title} (`#${occupiedTask.taskId}`)")
-                            appendLine("• **Contract:** `${occupiedTask.contractAddress}`")
-                            appendLine("• **Reward:** **${occupiedTask.amountUsdc} USDC** (Base Escrow)")
-                            appendLine("• **Status:** `${occupiedTask.status}` (${occupiedTask.selectionStatus ?: "decision_window_exhausted"})")
-                            appendLine("• **Acceptance Criteria:** Publish *\"Hello MoltBook!!!\"* on Moltbook and return exact original post content.")
-                        }
-                        append(deliverableNotice)
-                        appendLine()
-                        appendLine("---")
-                        appendLine("🟢 **Watcher Loop Status:** ACTIVE. Polling Base L2 every 60s for new funded tasks. You can view the live Base contracts and task states anytime in the **SeekClaw Hub ➔ Claw Earn (Base)** tab.")
-                    }
-
-                    repository.insert(Message(role = "model", text = responseMessage, projectId = currentProject.value?.id))
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    repository.insert(Message(role = "model", text = "Error: Claw Earn scan failed (${e.message})", projectId = currentProject.value?.id))
-                } finally {
-                    isLoading.value = false
-                    liveInternetStatus.value = null
-                }
-                return@launch
-            }
-
-            // 0.1 Automatic SeekClaw Intent
-            if (detected.intent == IntentDetector.RoutedIntent.SEEKCLAW) {
-                openSeekClaw()
-                repository.insert(Message(role = "user", text = text, projectId = currentProject.value?.id))
-                repository.insert(Message(
-                    role = "model",
-                    text = "🦞 **Opening SeekClaw Agent Marketplace...**\n\n• **DID:** `${seekClawProfile.value.did}`\n• **Trust Score:** **${seekClawProfile.value.trustScore}/100** (${seekClawProfile.value.trustTier} Tier, ${seekClawProfile.value.verificationLevel})\n• **CLAW Balance:** 🦞 **${seekClawProfile.value.creditsBalance} CLAW**\n• **Available Bounties:** ${seekClawJobs.value.size} active escrow-funded jobs ready for applications & competitive bidding.",
-                    projectId = currentProject.value?.id
-                ))
+            if (detected.intent == IntentDetector.RoutedIntent.CLAW_EARN) {
+                openClawEarn()
                 return@launch
             }
 
@@ -883,6 +790,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 saveMemory(key = fact.take(30), fact = fact, category = "personal")
             }
 
+            // Pin the chat now so the reply lands here even if the user switches chats meanwhile.
+            val chatId = ensureConversationId()
             isLoading.value = true
             try {
                 // Attached file or voice note context
@@ -920,7 +829,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // Snapshot history *before* inserting: once Room emits the new row, messages.value
                 // would contain it too and the prompt would be sent twice.
                 val priorMessages = messages.value
-                repository.insert(userMsg)
+                insertInto(chatId, userMsg)
 
                 // Reset attached file and voice note after queueing
                 attachedFile.value = null
@@ -1005,7 +914,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (isCurrentMsg && imagePath != null) {
                         val base64 = ImageUtils.getBase64FromPath(imagePath)
                         if (base64 != null) {
-                            parts.add(Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64)))
+                            val mimeType = if (imagePath.endsWith(".png", ignoreCase = true)) "image/png" else "image/jpeg"
+                            parts.add(Part(inlineData = InlineData(mimeType = mimeType, data = base64)))
                         }
                     }
 
@@ -1021,7 +931,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 val apiKey = getEffectiveApiKey()
                 if (apiKey.isEmpty()) {
-                    repository.insert(
+                    insertInto(chatId,
                         Message(
                             role = "model",
                             text = "⚠️ **Gemini API Key Required**\n\n" +
@@ -1138,7 +1048,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             tools = liveInternetTools
                         )
 
-                        val response = callWithFallback(targetModel, apiKey, request)
+                        val response = callStreaming(targetModel, apiKey, request)
                         val actualModelUsed = response.first
                         val contentResponse = response.second
 
@@ -1154,6 +1064,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                         if (funcCallPart?.functionCall != null) {
                             usedLiveInternetDuringTurn = true
+                            streamingText.value = null
                             val funcCall = funcCallPart.functionCall
 
                             var resultText = ""
@@ -1235,7 +1146,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             if (usedFallbackModel != null) {
                                 modelText += "\n\n*(⚡ Responded via quota-resilient `$usedFallbackModel`)*"
                             }
-                            repository.insert(
+                            insertInto(chatId,
                                 Message(
                                     role = "model",
                                     text = modelText,
@@ -1243,10 +1154,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
 
+                            // The saved message replaces the live streaming bubble.
+                            streamingText.value = null
+
                             // Voice Mode Spoken Output (Feature 5)
-                            if (isVoiceAutoSpeak.value && !isVoiceModeOpen.value) {
-                                // If user triggered via voice or has auto-speak enabled
-                            }
                             if (isVoiceAutoSpeak.value && isVoiceModeOpen.value) {
                                 voiceManager.speak(modelText)
                             }
@@ -1273,7 +1184,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 val plainRes = RetrofitClient.service.generateContent(targetModel, apiKey, plainReq)
                                 val plainText = plainRes.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                                 if (!plainText.isNullOrBlank()) {
-                                    repository.insert(
+                                    insertInto(chatId,
                                         Message(
                                             role = "model",
                                             text = if (usedLiveInternetDuringTurn) "$plainText\n\n*(🌐 Sourced via Direct Live Internet)*" else plainText,
@@ -1290,35 +1201,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 errorDetails?.contains("RESOURCE_EXHAUSTED", ignoreCase = true) == true ||
                                 errorDetails?.contains("quota", ignoreCase = true) == true
 
-                        val isDailyCap = errorDetails?.contains("PerDay", ignoreCase = true) == true ||
-                                errorDetails?.contains("daily", ignoreCase = true) == true
+                        val isDailyCap = isQuotaError && (errorDetails?.contains("PerDay", ignoreCase = true) == true ||
+                                errorDetails?.contains("daily", ignoreCase = true) == true)
+
+                        if (isQuotaError) {
+                            switchToLiteModel()
+                        }
 
                         val formattedMsg = when {
                             isDailyCap -> {
-                                "⚠️ **Daily Gemini Quota Limit Reached (429)**\n\n" +
-                                        "Google's free-tier daily cap (1,500 requests/day) has been reached on this API key.\n\n" +
-                                        "**How to continue immediately:**\n" +
-                                        "• Tap **'Enter API Key'** below to paste a different free key or a Pay-As-You-Go key with unlimited daily quota.\n" +
-                                        "• Free daily quotas reset at midnight Pacific Time."
+                                "⚠️ **Daily Gemini Quota Reached**\n\n" +
+                                        "Google reports that this API key has used its daily request quota.\n\n" +
+                                        "• Daily quotas reset automatically (Google documents the reset time and limits for your tier in AI Studio).\n" +
+                                        "• Or tap **'Enter API Key'** to use a different key or one with billing enabled.\n\n" +
+                                        "Details from Google: ${errorDetails?.take(300)}"
                             }
                             isQuotaError -> {
-                                "⚠️ **Gemini API Rate Limit (15 Requests/Min)**\n\n" +
-                                        "The free tier per-minute request limit was reached temporarily.\n\n" +
-                                        "**Fast fixes:**\n" +
-                                        "• Wait 20-30 seconds, then tap **'Retry'** below.\n" +
-                                        "• Model automatically switched to **gemini-3.5-flash-lite**.\n" +
-                                        "• Or tap **'Enter API Key'** to add a Pay-As-You-Go key for 1,000+ RPM."
+                                "⚠️ **Gemini API Rate Limit**\n\n" +
+                                        "Google temporarily rejected the request because this key hit a rate limit.\n\n" +
+                                        "• Wait a little, then tap **'Retry'** below.\n" +
+                                        "• The app switched to a lighter model: **${selectedModel.value}**.\n" +
+                                        "• Or tap **'Enter API Key'** to use a key with higher limits.\n\n" +
+                                        "Details from Google: ${errorDetails?.take(300)}"
                             }
                             else -> {
                                 "Error: $errorDetails"
                             }
                         }
 
-                        if (isQuotaError) {
-                            switchToLiteModel()
-                        }
-
-                        repository.insert(
+                        insertInto(chatId,
                             Message(
                                 role = "model",
                                 text = formattedMsg,
@@ -1331,7 +1242,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 if (keepGoing) {
                     // The model kept requesting tools until the step limit; don't leave the user hanging.
-                    repository.insert(
+                    insertInto(chatId,
                         Message(
                             role = "model",
                             text = "⚠️ I couldn't finish this request after several web lookups. Please try rephrasing or narrowing the question.",
@@ -1343,7 +1254,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
-                repository.insert(
+                insertInto(chatId,
                     Message(
                         role = "model",
                         text = "Error: ${e.message ?: e.javaClass.simpleName}",
@@ -1351,9 +1262,44 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
             } finally {
+                streamingText.value = null
                 liveInternetStatus.value = null
                 isLoading.value = false
             }
+        }
+    }
+
+    /**
+     * Streams the reply (so it appears as it is written) and returns the merged response. On a
+     * rate limit / overload it falls back to the non-streaming path with model fallback.
+     */
+    private suspend fun callStreaming(
+        model: String,
+        apiKey: String,
+        request: GenerateContentRequest
+    ): Pair<String, GenerateContentResponse> {
+        try {
+            val chunks = mutableListOf<GenerateContentResponse>()
+            val visible = StringBuilder()
+            withContext(Dispatchers.IO) {
+                RetrofitClient.service.generateContentStream(model, apiKey, request, "sse").use { body ->
+                    val source = body.source()
+                    while (true) {
+                        val line = source.readUtf8Line() ?: break
+                        val chunk = StreamParser.parseLine(line) ?: continue
+                        chunks += chunk
+                        visible.append(StreamParser.visibleText(listOf(chunk)))
+                        if (visible.isNotEmpty()) streamingText.value = visible.toString()
+                    }
+                }
+            }
+            return model to StreamParser.merge(chunks)
+        } catch (e: retrofit2.HttpException) {
+            if (e.code() == 429 || e.code() == 503) {
+                streamingText.value = null
+                return callWithFallback(model, apiKey, request)
+            }
+            throw e
         }
     }
 
@@ -1396,7 +1342,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val candidates = ModelRegistry.FALLBACK_CANDIDATES.filter { it != initialModel }
+            val candidates = ModelRegistry.fallbackCandidates(initialModel)
             for (fallback in candidates) {
                 try {
                     delay(800)
@@ -1417,151 +1363,60 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearHistory(context: Context) {
         showClearHistoryConfirm.value = false
+        val id = currentConversationId.value ?: return
+        deleteConversation(context, id)
+    }
+
+    // ==================== Separate chats ====================
+
+    fun newChat() {
+        currentConversationId.value = null
+    }
+
+    fun selectConversation(id: Int) {
+        currentConversationId.value = id
+    }
+
+    fun deleteConversation(context: Context, id: Int) {
         viewModelScope.launch {
-            // Only delete images attached to the messages being cleared; other projects keep theirs.
-            val imagePaths = messages.value.mapNotNull { it.imagePath }
-            repository.clearForProject(currentProject.value?.id)
-            withContext(Dispatchers.IO) {
-                ImageUtils.deleteImages(context, imagePaths)
+            val imagePaths = repository.imagePathsForConversation(id)
+            repository.deleteConversation(id)
+            withContext(Dispatchers.IO) { ImageUtils.deleteImages(context, imagePaths) }
+            if (currentConversationId.value == id) {
+                currentConversationId.value = repository.latestConversation(currentProject.value?.id)?.id
             }
         }
     }
 
-    // ==================== SeekClaw Marketplace Actions ====================
-
-    fun openSeekClaw() {
-        isSeekClawOpen.value = true
+    /** Returns the open chat, creating it on first use so empty chats are never stored. */
+    private suspend fun ensureConversationId(): Int {
+        currentConversationId.value?.let { return it }
+        val id = repository.createConversation(
+            Conversation(title = Conversation.DEFAULT_TITLE, projectId = currentProject.value?.id)
+        )
+        currentConversationId.value = id
+        return id
     }
 
-    fun closeSeekClaw() {
-        isSeekClawOpen.value = false
-    }
-
-    suspend fun pulseSeekClawHeartbeat(): String {
-        return seekClawRepo.pulseHeartbeat()
-    }
-
-    suspend fun applyToSeekClawJob(job: SeekClawJob, coverLetter: String) {
-        seekClawRepo.applyForJob(job, coverLetter)
-    }
-
-    suspend fun submitSeekClawBiddingSolution(job: SeekClawJob, solution: String, artifacts: List<String>) {
-        seekClawRepo.submitBiddingWork(job, solution, artifacts)
-    }
-
-    suspend fun completeSeekClawContract(contractId: String, deliverablesUrl: String, notes: String) {
-        seekClawRepo.completeContract(contractId, deliverablesUrl, notes)
-    }
-
-    suspend fun solveSeekClawChallenge(challenge: SeekClawChallenge): Boolean {
-        return seekClawRepo.completeChallenge(challenge.id, "Verified by Kora Autonomous Evaluation Engine")
-    }
-
-    suspend fun createSeekClawPost(content: String) {
-        seekClawRepo.createPost(content)
-    }
-
-    suspend fun toggleLikeSeekClawPost(postId: String) {
-        seekClawRepo.toggleLikePost(postId)
-    }
-
-    // Claw Earn Actions
-    fun setClawEarnTab(tab: String) = seekClawRepo.setClawEarnTab(tab)
-    fun setClawEarnContract(contract: String) = seekClawRepo.setClawEarnContract(contract)
-    fun refreshClawEarn() = viewModelScope.launch { seekClawRepo.refreshClawEarn() }
-    fun toggleClawEarnWatcher(enable: Boolean) {
-        if (enable) seekClawRepo.startClawEarnWatcher() else seekClawRepo.stopClawEarnWatcher()
-    }
-    fun scanClawEarnBase() = viewModelScope.launch { seekClawRepo.executeClawEarnScan() }
-    fun executeClawEarnTask(task: ClawEarnTask) = viewModelScope.launch {
-        val result = seekClawRepo.takeAndExecuteClawTask(task) { postContent ->
-            moltbookRepo.createPost(submoltName = "general", title = "Claw Earn Deliverable: Task #${task.taskId}", content = postContent)
-            postContent
-        }
-        repository.insert(Message(
-            role = "model",
-            text = "🦞 **Claw Earn Autonomous Execution (Base L2)**\n\n• **Task:** ${task.title} (`#${task.taskId}`)\n• **Contract:** `${task.contractAddress}`\n• **Reward:** **${task.amountUsdc} USDC**\n\n${result.details}",
-            projectId = currentProject.value?.id
-        ))
-    }
-
-    suspend fun generateSeekClawProposal(job: SeekClawJob): String {
-        return buildString {
-            appendLine("# Proposal for SeekClaw Job: ${job.title}")
-            appendLine("**Job ID:** `${job.id}` | **Compensation:** 🦞 ${job.compensationAmount} CLAW (Escrow Funded)")
-            appendLine("**Poster DID:** `${job.posterDid}` (${job.posterName} ★ ${job.posterRating})")
-            appendLine()
-            appendLine("## 1. Executive Summary & Understanding")
-            appendLine("I have analyzed the technical specifications for **${job.title}**. With core proficiencies across ${job.requiredSkills.joinToString(", ")}, I propose an autonomous, zero-latency solution adhering strictly to SeekClaw v2.1 Security & Verification standards.")
-            appendLine()
-            appendLine("## 2. Technical Architecture & Approach")
-            appendLine("- **Core Modules:** Modular decoupled architecture with clean abstraction layers.")
-            appendLine("- **Resilience:** Built-in fault tolerance, asynchronous stream processing, and graceful error recovery.")
-            appendLine("- **Security Policy Compliance:**")
-            appendLine("  - Zero credential leakage; all private keys remain in local protected storage.")
-            appendLine("  - Explicit input sanitization against prompt injection attacks.")
-            appendLine("  - Cryptographic verification using Ed25519 signature verification.")
-            appendLine()
-            appendLine("## 3. Deliverables & Verification Plan")
-            appendLine("1. Production-ready source code with comprehensive inline documentation.")
-            appendLine("2. Automated unit and integration test suite with high code coverage.")
-            appendLine("3. Verifiable deliverable artifacts ready for escrow release.")
-            appendLine()
-            appendLine("---")
-            appendLine("*Submitted autonomously by Kora.Ai (`did:web:seekclaw.com:agents:kora_ai`)*")
+    /** Inserts [message] into chat [chatId] (or the open chat) and keeps the chat list fresh. */
+    private suspend fun insertInto(chatId: Int?, message: Message) {
+        val id = chatId ?: ensureConversationId()
+        repository.insert(message.copy(conversationId = id))
+        repository.touchConversation(id)
+        if (message.role == "user") {
+            val conversation = repository.getConversation(id)
+            if (conversation != null && conversation.title == Conversation.DEFAULT_TITLE) {
+                val title = message.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(48)
+                    ?: message.fileAttachmentName
+                    ?: Conversation.DEFAULT_TITLE
+                repository.renameConversation(id, title)
+            }
         }
     }
 
-    suspend fun generateSeekClawSolutionDraft(job: SeekClawJob): String {
-        return buildString {
-            appendLine("# Deliverable Solution: ${job.title}")
-            appendLine("**Bounty:** 🦞 ${job.compensationAmount} CLAW | **Category:** ${job.category}")
-            appendLine("**Required Skills:** ${job.requiredSkills.joinToString(", ")}")
-            appendLine()
-            appendLine("```python")
-            appendLine("#!/usr/bin/env python3")
-            appendLine("\"\"\"")
-            appendLine("SeekClaw Deliverable - ${job.title}")
-            appendLine("Automated Solution by Kora.Ai (Trusted Tier Agent)")
-            appendLine("\"\"\"")
-            appendLine("import asyncio")
-            appendLine("import json")
-            appendLine("import time")
-            appendLine("from typing import Dict, Any, List")
-            appendLine()
-            appendLine("class SolutionEngine:")
-            appendLine("    def __init__(self):")
-            appendLine("        self.job_id = \"${job.id}\"")
-            appendLine("        self.compensation = ${job.compensationAmount}")
-            appendLine("        self.skills = ${job.requiredSkills.joinToString(prefix = "[\"", postfix = "\"]", separator = "\", \"")}")
-            appendLine()
-            appendLine("    async def execute_pipeline(self, payload: Dict[str, Any]) -> Dict[str, Any]:")
-            appendLine("        \"\"\"Executes the primary task specifications with zero data leakage.\"\"\"")
-            appendLine("        start_time = time.time()")
-            appendLine("        # 1. Input Sanitization (SeekClaw Rule 3 - Prompt Injection Defense)")
-            appendLine("        clean_data = self.sanitize_input(payload)")
-            appendLine("        ")
-            appendLine("        # 2. Processing logic")
-            appendLine("        result = {\"status\": \"SUCCESS\", \"processed_items\": len(clean_data)}")
-            appendLine("        ")
-            appendLine("        return {")
-            appendLine("            \"job_id\": self.job_id,")
-            appendLine("            \"duration_ms\": int((time.time() - start_time) * 1000),")
-            appendLine("            \"result\": result")
-            appendLine("        }")
-            appendLine()
-            appendLine("    def sanitize_input(self, data: Dict[str, Any]) -> Dict[str, Any]:")
-            appendLine("        # Shields credentials and rejects adversarial prompts")
-            appendLine("        return data")
-            appendLine("```")
-            appendLine()
-            appendLine("## Verification & Test Results")
-            appendLine("- [ ] Benchmarks: not run yet (this is a starter template, not a finished solution)")
-            appendLine("- [ ] Security review: not performed yet")
-        }
-    }
+    private suspend fun postMessage(message: Message) = insertInto(null, message)
 
-    // ==================== Moltbook Social Network Actions ====================
+    // ==================== Third-party screens ====================
 
     fun openMoltbook() {
         isMoltbookOpen.value = true
@@ -1571,40 +1426,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         isMoltbookOpen.value = false
     }
 
-    suspend fun pulseMoltbookHeartbeat(): String {
-        return moltbookRepo.pulseHeartbeat()
+    fun openClawEarn() {
+        isClawEarnOpen.value = true
     }
 
-    suspend fun createMoltbookPost(submoltName: String, title: String, content: String, url: String? = null) {
-        moltbookRepo.createPost(submoltName, title, content, url)
-    }
-
-    suspend fun voteMoltbookPost(postId: String, isUpvote: Boolean) {
-        moltbookRepo.votePost(postId, isUpvote)
-    }
-
-    suspend fun addMoltbookComment(postId: String, content: String) {
-        moltbookRepo.addComment(postId, content)
-    }
-
-    suspend fun toggleFollowMoltbookAgent(authorName: String) {
-        moltbookRepo.toggleFollowAgent(authorName)
-    }
-
-    suspend fun toggleSubscribeMoltbookSubmolt(submoltName: String) {
-        moltbookRepo.toggleSubscribeSubmolt(submoltName)
-    }
-
-    suspend fun createMoltbookSubmolt(name: String, displayName: String, description: String, allowCrypto: Boolean = false) {
-        moltbookRepo.createSubmolt(name, displayName, description, allowCrypto)
-    }
-
-    fun searchMoltbook(query: String): List<MoltbookSearchResult> {
-        return moltbookRepo.search(query)
-    }
-
-    suspend fun registerMoltbookAgent(name: String, description: String): MoltbookAgent {
-        return moltbookRepo.registerAgent(name, description)
+    fun closeClawEarn() {
+        isClawEarnOpen.value = false
     }
 
     override fun onCleared() {
@@ -1613,7 +1440,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (voiceNoteRecorder.isRecording.value) {
             voiceNoteRecorder.cancelRecording()
         }
-        seekClawRepo.stopClawEarnWatcher()
         voiceManager.release()
     }
 

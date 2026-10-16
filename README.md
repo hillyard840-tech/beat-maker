@@ -1,64 +1,65 @@
 # Kora.Ai 🤖
 
-**Kora.Ai** is a versatile, multimodal autonomous AI assistant built with modern **Android (Kotlin & Jetpack Compose)** and powered by the **Google Gemini API**. It features local persistence, real-time web exploration, an autonomous background learning engine, and advanced quota management.
+**Kora.Ai** is a multimodal AI assistant for Android (Kotlin & Jetpack Compose) powered by the **Google Gemini API**. Everything the app shows comes from a real service (Gemini, the web, Moltbook, aiagentstore.ai) or from your own data on the device. Nothing is simulated.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Features
 
-### 1. 💬 Multimodal Conversational Interface
-- **Modern Jetpack Compose UI**: Clean, responsive Material 3 layout with edge-to-edge rendering.
-- **Multimodal Understanding**: Accepts both natural language text queries and uploaded photos/screenshots via the zero-permission Android Photo Picker.
-- **Local Persistence with Room**: Chat conversations and attachments are saved locally on-device in a Room SQLite database.
-- **Storage Purge / Reset**: One-tap "Clear History" action in the top app bar wipes the database and deletes cached media files from internal storage.
+### 💬 Chat
+- **Separate chats** per workspace: open the menu (☰) to switch chats, start a new one, or delete one. The home-screen widget's "New chat" button starts a fresh chat and keeps the old ones.
+- **Streaming replies**: text appears while Gemini writes it.
+- **Images, documents and voice notes**: attach photos (downscaled and sent as JPEG), text/CSV files (with automatic column statistics) and voice notes (transcribed on the device).
+- **Projects, memory, personas and prompt templates** are stored locally in a Room database.
+- **Export** a chat as Markdown or plain text.
 
-### 2. 🌐 Direct Live Internet Access & Real-Time Web Exploration
-- **Direct Live Web Search**: Real-time web index search engine (`search_live_web` via DuckDuckGo and Wikipedia organic indices) delivering live news, sports, stock updates, documentation, and facts directly to Kora.Ai.
-- **Direct Live Page Reader**: Real-time full webpage reader (`fetch_website` via Jsoup) that loads, parses, and extracts text from any live URL on the internet.
-- **Dedicated Quota Protection**: By operating through direct client-side function calls rather than Google Search grounding quotas, Live Internet protects you from 429 quota exhaustion.
-- **Live Internet Status Strip & Tester**: Toggle direct internet on/off with one tap, observe real-time search/fetch progress banners, and test live queries directly inside the Model Settings dialog.
+### 🌐 Live web access
+- Gemini can call two tools: `search_live_web` (DuckDuckGo, with Wikipedia as a fallback) and `fetch_website` (page text via Jsoup).
+- Addresses on your local network, non-http(s) URLs and redirects to private addresses are blocked, so a malicious page can't make the app probe your router or LAN.
+- An automatic search only runs for clearly time-sensitive questions (for example "today", "weather", "who won", or a URL). Your search terms are sent to DuckDuckGo.
 
-### 3. 🧠 8-Hour Autonomous Learning Engine & Dashboard
-- **Background Worker**: Configurable via a simple toggle switch; uses Android `WorkManager` to schedule periodic learning routines across an 8-hour workday.
-- **Continuous Skill Development**: Autonomously investigates topics such as systems programming (Rust), memory management (Python), Zero Trust cybersecurity, MLOps, code sandboxing, and autonomous agent engineering.
-- **Visual Learning Dashboard**: 
-  - Tracks experience progression for each explored topic (0% to 100%).
-  - Automatic leveling: `Beginner` ➔ `Intermediate` ➔ `Advanced` ➔ `Expert`.
-  - Displays summarized recent insight snippets for each topic.
+### 🔬 Deep Research
+Runs several web searches, reads the top pages and asks Gemini for a cited report built only from those sources.
 
-### 4. ⚡ Gemini Model Selector & Quota Management
-- **Full Model Catalog**:
-  - **Flash Models**: `gemini-3.8-flash` (default), `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-flash-latest`.
-  - **Lite / Quota-Friendly**: `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite-preview`, `gemini-flash-lite-latest`.
-  - **Pro Reasoning**: `gemini-3.1-pro-preview`.
-  - **Custom Model ID**: Ability to enter any custom or experimental Gemini model string.
-- **Automatic Quota Fallback (HTTP 429 Protection)**: Seamlessly reroutes requests through alternative models if the active model hits rate limits.
-- **Custom / Paid API Key Support**: In-app settings dialog to enter a personal or Tier 1 billing key for high-frequency usage (1,000+ RPM).
+### 🎨 Image generation
+Uses an Imagen model that your API key has access to (found through the Gemini models API). If none is available, the app says so; it never fakes an image.
 
----
+### ⚡ Models
+The model list comes from Gemini's `models.list` API for your key. The default is Google's `gemini-flash-lite-latest` alias. When a model is rate-limited, the app can retry with a lighter model that your key can use.
 
-## 🏗️ Architecture & Tech Stack
+### 🧠 Learning Mode (optional)
+When it's on, a background job asks Gemini for one short insight on a rotating topic about every 3 hours. Each run uses one request from your API quota, and the app asks you to confirm before turning it on. The dashboard shows how many real insights were collected per topic, along with the latest one.
 
-- **UI Framework**: Jetpack Compose with Material Design 3 (M3)
-- **Language**: Kotlin with Kotlin Coroutines & Flow
-- **Networking**: Retrofit 2, OkHttp 3, Kotlinx Serialization
-- **Web Parser**: JSoup 1.17.2
-- **Image Loading**: Coil Compose
-- **Local Database**: Android Jetpack Room with KSP
-- **Background Tasks**: Android Jetpack WorkManager
-- **AI Engine**: Google Gemini REST API (v1beta)
+### 🦞 Moltbook
+A real client for [moltbook.com](https://www.moltbook.com), a public social network for AI agents. You can register an agent (or paste an existing API key), open the claim link, read the feed, post, comment and vote. Posts are public, and nothing is posted automatically.
+
+### 💼 Claw Earn tasks
+A read-only view of the public Claw Earn task board on aiagentstore.ai. Taking or submitting a task needs a Base wallet and isn't done in this app.
 
 ---
 
-## 🚀 Getting Started
+## 🔒 Privacy & security
+- The Gemini key is sent in the `x-goog-api-key` header, never in URLs. Request logging is debug-only, with the key hidden.
+- Settings that hold API keys are excluded from cloud backup and device transfer.
+- Deleting a chat requires confirmation and also removes its images.
+- Text from web pages and files is treated as untrusted data in the system prompt.
 
-### API Key Configuration
-Configure your Gemini API key in the AI Studio Secrets panel or directly inside the app:
+---
+
+## 🏗️ Tech stack
+Jetpack Compose (Material 3), Kotlin coroutines & Flow, Retrofit + OkHttp + kotlinx.serialization, Jsoup, Coil, Room (with real schema migrations), and WorkManager.
+
+---
+
+## 🚀 Getting started
+
+### API key
+Set `GEMINI_API_KEY` in `.env` before building, or enter your own key in the app:
 1. Tap the **Settings (⚙️)** icon in the top app bar.
-2. Select the **Quota & API Key** tab.
+2. Open the **Quota & API Key** tab.
 3. Paste your Gemini API key and tap **Save Key**.
 
 ### Building
 - Open the project in Android Studio, or run `./gradlew assembleDebug`.
-- Signing keystores are not committed. `debug.keystore` and `my-upload-key.jks` (or `KEYSTORE_PATH`) are used only if present; without them debug builds use the default Android debug key and release builds are unsigned.
+- Signing keystores aren't committed. `debug.keystore` and `my-upload-key.jks` (or `KEYSTORE_PATH`) are used only if they exist. Without them, debug builds use the default Android debug key and release builds are unsigned.
 - Run unit tests with `./gradlew testDebugUnitTest`.

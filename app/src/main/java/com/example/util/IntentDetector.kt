@@ -19,7 +19,7 @@ object IntentDetector {
         CANVAS,
         DATA_ANALYSIS,
         PERSISTENT_MEMORY,
-        SEEKCLAW,
+        CLAW_EARN,
         MOLTBOOK,
         STANDARD_WITH_LIVE_WEB,
         STANDARD
@@ -39,11 +39,12 @@ object IntentDetector {
     )
 
     private val LIVE_WEB_PATTERNS = listOf(
-        // Explicit time / temporal anchors
-        Regex("""\b(?:today|yesterday|tomorrow|this\s+week|this\s+month|latest|current|recent|recently|breaking|live|now|right\s+now|at\s+present|real-time|updated)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(?:2025|2026|2027)\b"""),
+        // Explicit time anchors. Generic words like "now", "current" or "live" are deliberately
+        // excluded: they appear in ordinary questions and would send the message to the search
+        // engine for no reason.
+        Regex("""\b(?:today|tonight|yesterday|this\s+week|this\s+month|right\s+now|breaking\s+news|latest\s+news)\b""", RegexOption.IGNORE_CASE),
         // Specific live domains
-        Regex("""\b(?:weather|forecast|temperature|stock\s+price|market\s+cap|crypto\s+price|bitcoin|score|match\s+result|who\s+won|standings|election|schedule|flight\s+status|news|headline)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(?:weather|forecast|stock\s+price|share\s+price|market\s+cap|crypto\s+price|exchange\s+rate|match\s+result|final\s+score|who\s+won|standings|election\s+results|flight\s+status|headlines)\b""", RegexOption.IGNORE_CASE),
         // Search request verbs
         Regex("""\b(?:search\s+(?:the\s+web|online|internet|google|bing)|look\s+up\s+online|browse\s+the\s+web|check\s+the\s+news|find\s+latest\s+info)\b""", RegexOption.IGNORE_CASE),
         // URLs
@@ -63,14 +64,12 @@ object IntentDetector {
         Regex("""^(?:open\s+(?:a\s+)?canvas|write\s+(?:a\s+)?full\s+(?:script|program|essay|contract|article)\s+in\s+canvas)\b""", RegexOption.IGNORE_CASE)
     )
 
-    private val SEEKCLAW_PATTERNS = listOf(
-        Regex("""\b(?:seekclaw|claw\s+credits|agent\s+bount(?:y|ies)|agent\s+marketplace|seek\s+claw)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(?:find\s+(?:agent\s+)?jobs|apply\s+(?:to|for)\s+job|open\s+marketplace)\b""", RegexOption.IGNORE_CASE)
+    private val CLAW_EARN_PATTERNS = listOf(
+        Regex("""\bclaw[\s-]?earn\b""", RegexOption.IGNORE_CASE)
     )
 
     private val MOLTBOOK_PATTERNS = listOf(
-        Regex("""\b(?:moltbook|submolt|moltys?|lobster\s+social|agent\s+social\s+network|post\s+on\s+moltbook|post\s+to\s+moltbook|moltbook\s+feed)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(?:check\s+moltbook|open\s+moltbook|browse\s+submolts?)\b""", RegexOption.IGNORE_CASE)
+        Regex("""\b(?:moltbook|submolts?)\b""", RegexOption.IGNORE_CASE)
     )
 
     fun detect(prompt: String, hasAttachedDataset: Boolean = false): DetectionResult {
@@ -84,11 +83,11 @@ object IntentDetector {
             )
         }
 
-        // 0.1 Check for SeekClaw intent
-        if (SEEKCLAW_PATTERNS.any { it.containsMatchIn(trimmed) }) {
+        // 0.1 Check for Claw Earn task board intent
+        if (CLAW_EARN_PATTERNS.any { it.containsMatchIn(trimmed) }) {
             return DetectionResult(
-                intent = RoutedIntent.SEEKCLAW,
-                reasoning = "SeekClaw agent marketplace requested"
+                intent = RoutedIntent.CLAW_EARN,
+                reasoning = "Claw Earn task board requested"
             )
         }
 

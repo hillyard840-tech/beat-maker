@@ -25,7 +25,7 @@ import com.example.data.Skill
 fun DashboardScreen(
     viewModel: ChatViewModel,
     onBack: () -> Unit,
-    onOpenSeekClaw: () -> Unit = {},
+    onOpenClawEarn: () -> Unit = {},
     onOpenMoltbook: () -> Unit = {}
 ) {
     val skills by viewModel.skills.collectAsStateWithLifecycle()
@@ -34,9 +34,29 @@ fun DashboardScreen(
     val operationalState by viewModel.operationalState.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val memories by viewModel.memories.collectAsStateWithLifecycle()
-    val seekClawProfile by viewModel.seekClawProfile.collectAsStateWithLifecycle()
-    val moltbookProfile by viewModel.moltbookProfile.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showLearningQuotaWarning by remember { mutableStateOf(false) }
+
+    if (showLearningQuotaWarning) {
+        AlertDialog(
+            onDismissRequest = { showLearningQuotaWarning = false },
+            title = { Text("Turn on Learning Mode?") },
+            text = {
+                Text(
+                    "While it's on, the app sends one request to Gemini about every 3 hours in the background, " +
+                        "even when you aren't using it. Each request counts against your API key's quota " +
+                        "(and costs money if billing is enabled on the key). You can turn it off at any time."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLearningQuotaWarning = false
+                    viewModel.toggleLearningMode(context, true)
+                }) { Text("Turn on") }
+            },
+            dismissButton = { TextButton(onClick = { showLearningQuotaWarning = false }) { Text("Cancel") } }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -99,134 +119,25 @@ fun DashboardScreen(
                 }
             }
 
-            // SeekClaw Autonomous Agent Marketplace Card
+            // Real third-party integrations (live data, no local simulation)
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    onClick = onOpenSeekClaw
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🦞", fontSize = 28.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "SeekClaw Agent Marketplace",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = MaterialTheme.colorScheme.primary
-                                ) {
-                                    Text(
-                                        "v2.1",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Bounties, Skill Verification & Escrow Contracts",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${seekClawProfile.creditsBalance} CLAW",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFE65100)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "•  ${seekClawProfile.trustTier} (Score: ${seekClawProfile.trustScore})",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = "Open SeekClaw",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
+                IntegrationCard(
+                    emoji = "🦞",
+                    title = "Moltbook",
+                    subtitle = "Public social network for AI agents · live from moltbook.com",
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    onClick = onOpenMoltbook
+                )
             }
 
-            // Moltbook AI Agent Social Network Card
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    onClick = onOpenMoltbook
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🦞", fontSize = 28.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Moltbook Social Network",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFFE65100)
-                                ) {
-                                    Text(
-                                        "v1.12",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Submolts, Personalized Feeds & Semantic AI Search",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${moltbookProfile.karma} Karma",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFE65100)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "•  @${moltbookProfile.name} (${if (moltbookProfile.isClaimed) "Claimed" else "Pending"})",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                        }
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = "Open Moltbook",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
+                IntegrationCard(
+                    emoji = "💼",
+                    title = "Claw Earn tasks",
+                    subtitle = "Public task board · live from aiagentstore.ai (read-only)",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    onClick = onOpenClawEarn
+                )
             }
 
             // Learning Mode & Background Tasks Card
@@ -300,7 +211,13 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.weight(1f))
                             TextButton(
-                                onClick = { viewModel.toggleLearningMode(context, !isLearningModeEnabled) }
+                                onClick = {
+                                    if (isLearningModeEnabled) {
+                                        viewModel.toggleLearningMode(context, false)
+                                    } else {
+                                        showLearningQuotaWarning = true
+                                    }
+                                }
                             ) {
                                 Text(if (isLearningModeEnabled) "Turn Off" else "Turn On")
                             }
@@ -311,7 +228,7 @@ fun DashboardScreen(
 
             item {
                 Text(
-                    text = "Skill Progression",
+                    text = "Learning Topics",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -320,7 +237,7 @@ fun DashboardScreen(
             if (skills.isEmpty()) {
                 item {
                     Text(
-                        text = "No skills acquired yet. Enable Autonomous Learning from the menu to build long-term proficiencies.",
+                        text = "No insights yet. When Learning Mode is on, Kora asks Gemini for a short practical insight on one topic every few hours and saves it here.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -336,83 +253,67 @@ fun DashboardScreen(
 
 @Composable
 fun SkillItem(skill: Skill) {
+    val updated = remember(skill.updatedAt) {
+        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+            .format(java.util.Date(skill.updatedAt))
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = skill.topic,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = when(skill.level) {
-                        "Beginner" -> Color(0xFFE3F2FD)
-                        "Intermediate" -> Color(0xFFFFF8E1)
-                        "Advanced" -> Color(0xFFE8F5E9)
-                        "Expert" -> Color(0xFFF3E5F5)
-                        else -> MaterialTheme.colorScheme.secondaryContainer
-                    }
-                ) {
-                    Text(
-                        text = skill.level,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when(skill.level) {
-                            "Beginner" -> Color(0xFF1565C0)
-                            "Intermediate" -> Color(0xFFF57F17)
-                            "Advanced" -> Color(0xFF2E7D32)
-                            "Expert" -> Color(0xFF6A1B9A)
-                            else -> MaterialTheme.colorScheme.onSecondaryContainer
-                        },
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            Text(
+                text = skill.topic,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            // "progress" stores how many real insights Gemini has returned for this topic.
+            Text(
+                text = "${skill.progress} insight${if (skill.progress == 1) "" else "s"} collected · last $updated",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                LinearProgressIndicator(
-                    progress = { skill.progress / 100f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "${skill.progress}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
             Text(
-                text = "Recent Insight:",
+                text = "Latest insight:",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = skill.lastInsight.replace("\n", " "),
+                text = skill.lastInsight,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IntegrationCard(
+    emoji: String,
+    title: String,
+    subtitle: String,
+    containerColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        onClick = onClick
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(emoji, fontSize = 28.sp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "Open $title")
         }
     }
 }

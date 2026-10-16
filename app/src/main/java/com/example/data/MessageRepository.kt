@@ -5,7 +5,8 @@ import kotlinx.coroutines.flow.Flow
 class MessageRepository(
     private val messageDao: MessageDao,
     private val memoryDao: MemoryDao,
-    private val projectDao: ProjectDao
+    private val projectDao: ProjectDao,
+    private val conversationDao: ConversationDao
 ) {
     val allMessages: Flow<List<Message>> = messageDao.getAllMessages()
     val allMemories: Flow<List<MemoryItem>> = memoryDao.getAllMemories()
@@ -33,6 +34,25 @@ class MessageRepository(
     suspend fun updateProject(project: Project) = projectDao.updateProject(project)
     suspend fun deleteProject(project: Project) {
         messageDao.clearHistoryForProject(project.id)
+        conversationDao.deleteForProject(project.id)
         projectDao.deleteProject(project)
+    }
+
+    suspend fun imagePathsForProject(projectId: Int): List<String> = messageDao.getImagePathsForProject(projectId)
+
+    // Conversations
+    fun conversationsForProject(projectId: Int?): Flow<List<Conversation>> = conversationDao.getForProject(projectId)
+    fun messagesForConversation(conversationId: Int): Flow<List<Message>> = messageDao.getMessagesByConversation(conversationId)
+    suspend fun latestConversation(projectId: Int?): Conversation? = conversationDao.getLatestForProject(projectId)
+    suspend fun getConversation(id: Int): Conversation? = conversationDao.getById(id)
+    suspend fun createConversation(conversation: Conversation): Int = conversationDao.insert(conversation).toInt()
+    suspend fun renameConversation(id: Int, title: String) = conversationDao.rename(id, title)
+    suspend fun touchConversation(id: Int) = conversationDao.touch(id, System.currentTimeMillis())
+    suspend fun imagePathsForConversation(id: Int): List<String> = messageDao.getImagePathsForConversation(id)
+
+    /** Deletes a conversation and all of its messages. */
+    suspend fun deleteConversation(id: Int) {
+        messageDao.clearConversation(id)
+        conversationDao.delete(id)
     }
 }

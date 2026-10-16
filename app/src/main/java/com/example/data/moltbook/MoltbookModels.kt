@@ -1,166 +1,140 @@
 package com.example.data.moltbook
 
-import kotlinx.serialization.Serializable
+import com.example.data.remote.arrayOf
+import com.example.data.remote.num
+import com.example.data.remote.obj
+import com.example.data.remote.str
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
-@Serializable
-data class MoltbookOwner(
-    val xHandle: String = "",
-    val xName: String = "",
-    val xAvatar: String = "",
-    val xBio: String = "",
-    val xFollowerCount: Int = 0,
-    val xFollowingCount: Int = 0,
-    val xVerified: Boolean = false
+data class MoltbookRegistration(
+    val apiKey: String,
+    val claimUrl: String?,
+    val verificationCode: String?
 )
 
-@Serializable
 data class MoltbookAgent(
     val name: String,
     val description: String,
-    val karma: Int = 0,
-    val followerCount: Int = 0,
-    val followingCount: Int = 0,
-    val postsCount: Int = 0,
-    val commentsCount: Int = 0,
-    val isClaimed: Boolean = false,
-    val isActive: Boolean = true,
-    val createdAt: String = "",
-    val lastActive: String = "",
-    val apiKey: String = "",
-    val claimUrl: String = "",
-    val verificationCode: String = "",
-    val owner: MoltbookOwner? = null
+    val karma: Int?,
+    val followerCount: Int?,
+    val isClaimed: Boolean?
 )
 
-@Serializable
-data class MoltbookLabel(
-    val id: String = "",
-    val key: String,
-    val label: String,
-    val color: String = "orange", // emerald, rose, amber, sky, violet, slate, indigo, teal, pink, orange
-    val kind: String = "tag", // tag, status, role
-    val prompt: String = "",
-    val cadenceMinutes: Int = 1440
-)
-
-@Serializable
 data class MoltbookPost(
     val id: String,
-    val submoltName: String,
     val title: String,
-    val content: String = "",
-    val url: String? = null,
-    val type: String = "text", // text, link, image
-    val upvotes: Int = 0,
-    val downvotes: Int = 0,
+    val content: String,
+    val url: String?,
     val authorName: String,
-    val authorKarma: Int = 0,
-    val authorAvatar: String? = null,
-    val createdAt: String = "Just now",
-    val isPinned: Boolean = false,
-    val labels: List<MoltbookLabel> = emptyList(),
-    val commentCount: Int = 0,
-    val userVote: Int = 0 // +1 (upvote), 0 (none), -1 (downvote)
-)
+    val submoltName: String,
+    val upvotes: Int,
+    val downvotes: Int,
+    val commentCount: Int,
+    val createdAt: String?
+) {
+    val score: Int get() = upvotes - downvotes
+}
 
-@Serializable
 data class MoltbookComment(
     val id: String,
-    val postId: String,
-    val parentId: String? = null,
     val authorName: String,
-    val authorKarma: Int = 0,
     val content: String,
-    val upvotes: Int = 0,
-    val downvotes: Int = 0,
-    val createdAt: String = "Just now",
-    val replies: List<MoltbookComment> = emptyList(),
-    val userVote: Int = 0
+    val upvotes: Int,
+    val createdAt: String?
 )
 
-@Serializable
 data class MoltbookSubmolt(
     val name: String,
     val displayName: String,
     val description: String,
-    val allowCrypto: Boolean = false,
-    val bannerColor: String = "#1a1a2e",
-    val themeColor: String = "#ff4500",
-    val subscriberCount: Int = 0,
-    val isSubscribed: Boolean = false,
-    val yourRole: String? = null // "owner", "moderator", null
+    val subscriberCount: Int?
 )
 
-@Serializable
-data class MoltbookVerification(
-    val verificationCode: String,
-    val challengeText: String,
-    val expiresAt: String = "",
-    val instructions: String = "",
-    val solvedAnswer: String? = null
-)
+/**
+ * Parses real Moltbook API responses. Field names are read leniently (snake_case and camelCase,
+ * nested or flat) so small API differences degrade gracefully instead of crashing.
+ */
+object MoltbookParser {
 
-@Serializable
-data class MoltbookPostActivity(
-    val postId: String,
-    val postTitle: String,
-    val submoltName: String,
-    val newNotificationCount: Int,
-    val latestAt: String,
-    val latestCommenters: List<String> = emptyList(),
-    val preview: String,
-    val suggestedActions: List<String> = emptyList()
-)
+    fun registration(root: JsonElement): MoltbookRegistration {
+        val top = root as? JsonObject ?: throw IllegalArgumentException("Unexpected registration response")
+        val agent = top.obj("agent", "data") ?: top
+        val key = agent.str("api_key", "apiKey") ?: top.str("api_key", "apiKey")
+            ?: throw IllegalArgumentException("Registration response did not include an API key")
+        return MoltbookRegistration(
+            apiKey = key,
+            claimUrl = agent.str("claim_url", "claimUrl") ?: top.str("claim_url", "claimUrl"),
+            verificationCode = agent.str("verification_code", "verificationCode")
+                ?: top.str("verification_code", "verificationCode")
+        )
+    }
 
-@Serializable
-data class MoltbookPostAnnouncement(
-    val postId: String,
-    val title: String,
-    val preview: String
-)
+    fun claimStatus(root: JsonElement): String? = (root as? JsonObject)?.let { it.str("status") ?: it.obj("agent")?.str("status") }
 
-@Serializable
-data class MoltbookPostSummary(
-    val postId: String,
-    val title: String,
-    val contentPreview: String,
-    val submoltName: String,
-    val authorName: String,
-    val upvotes: Int,
-    val commentCount: Int,
-    val createdAt: String
-)
+    fun agent(root: JsonElement): MoltbookAgent? {
+        val top = root as? JsonObject ?: return null
+        val agent = top.obj("agent", "data") ?: top
+        val name = agent.str("name", "username") ?: return null
+        return MoltbookAgent(
+            name = name,
+            description = agent.str("description", "bio").orEmpty(),
+            karma = agent.num("karma")?.toInt(),
+            followerCount = agent.num("follower_count", "followerCount", "followers")?.toInt(),
+            isClaimed = (agent["is_claimed"] ?: agent["isClaimed"])?.let { (it as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() }
+        )
+    }
 
-@Serializable
-data class MoltbookBriefing(
-    val roleName: String,
-    val prompt: String,
-    val message: String,
-    val submoltName: String
-)
+    fun posts(root: JsonElement): List<MoltbookPost> =
+        root.arrayOf("posts", "data", "results").mapNotNull { post(it) }
 
-@Serializable
-data class MoltbookSearchResult(
-    val id: String,
-    val type: String, // "post" or "comment"
-    val title: String? = null,
-    val content: String,
-    val upvotes: Int = 0,
-    val downvotes: Int = 0,
-    val similarity: Double = 0.85,
-    val authorName: String,
-    val submoltName: String? = null,
-    val postId: String
-)
+    fun post(o: JsonObject): MoltbookPost? {
+        val id = o.str("id", "_id", "post_id") ?: return null
+        return MoltbookPost(
+            id = id,
+            title = o.str("title").orEmpty(),
+            content = o.str("content", "body", "text").orEmpty(),
+            url = o.str("url", "link"),
+            authorName = nameOf(o, "author", "agent") ?: o.str("author_name", "authorName") ?: "unknown",
+            submoltName = nameOf(o, "submolt", "community") ?: o.str("submolt_name", "submoltName") ?: "",
+            upvotes = o.num("upvotes", "upvote_count")?.toInt() ?: 0,
+            downvotes = o.num("downvotes", "downvote_count")?.toInt() ?: 0,
+            commentCount = o.num("comment_count", "commentCount", "comments_count")?.toInt() ?: 0,
+            createdAt = o.str("created_at", "createdAt")
+        )
+    }
 
-@Serializable
-data class MoltbookHomeData(
-    val name: String,
-    val karma: Int,
-    val unreadNotifications: Int,
-    val activityOnYourPosts: List<MoltbookPostActivity> = emptyList(),
-    val announcement: MoltbookPostAnnouncement? = null,
-    val postsFromFollowing: List<MoltbookPostSummary> = emptyList(),
-    val whatToDoNext: List<String> = emptyList(),
-    val briefings: List<MoltbookBriefing> = emptyList()
-)
+    fun comments(root: JsonElement): List<MoltbookComment> =
+        root.arrayOf("comments", "data", "results").mapNotNull { c ->
+            val id = c.str("id", "_id") ?: return@mapNotNull null
+            MoltbookComment(
+                id = id,
+                authorName = nameOf(c, "author", "agent") ?: c.str("author_name", "authorName") ?: "unknown",
+                content = c.str("content", "body", "text").orEmpty(),
+                upvotes = c.num("upvotes")?.toInt() ?: 0,
+                createdAt = c.str("created_at", "createdAt")
+            )
+        }
+
+    fun submolts(root: JsonElement): List<MoltbookSubmolt> =
+        root.arrayOf("submolts", "data", "results").mapNotNull { s ->
+            val name = s.str("name") ?: return@mapNotNull null
+            MoltbookSubmolt(
+                name = name,
+                displayName = s.str("display_name", "displayName") ?: name,
+                description = s.str("description").orEmpty(),
+                subscriberCount = s.num("subscriber_count", "subscriberCount", "subscribers")?.toInt()
+            )
+        }
+
+    /** A nested object's "name" (e.g. author: {name: ...}) or the field itself if it's a string. */
+    private fun nameOf(o: JsonObject, vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        when (val v = o[key]) {
+            is JsonObject -> v.str("name", "username")
+            is JsonPrimitive -> v.contentOrNull?.takeIf { it.isNotBlank() }
+            else -> null
+        }
+    }
+}

@@ -6,6 +6,5 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="omni_agent_prefs.xml" />
-    <exclude domain="sharedpref" path="moltbook_agent_prefs.xml" />
-    <exclude domain="sharedpref" path="seekclaw_prefs.xml" />
+    <exclude domain="sharedpref" path="moltbook_credentials.xml" />
 </full-backup-content>
