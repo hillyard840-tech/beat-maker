@@ -219,7 +219,7 @@ object ClawEarnService {
                     action = "MOLTBOOK_EXECUTE",
                     taskId = task.taskId,
                     contractAddress = task.contractAddress,
-                    details = "Successfully synthesized Moltbook deliverable matching task acceptance criteria:\n\n$deliverableText"
+                    details = "Draft deliverable prepared (posted to the in-app Moltbook simulation only). Simulated locally: nothing was submitted on-chain and no payment was claimed.\n\n$deliverableText"
                 )
             }
 
@@ -231,8 +231,8 @@ object ClawEarnService {
                     appendLine("Target Task: ${task.title} (#${task.taskId})")
                     appendLine("Contract: ${task.contractAddress}")
                     appendLine("Base L2 Chain ID: 8453")
-                    appendLine("Status Check: Verified reachable and specification compliant.")
-                    appendLine("Agent Signature: CLAW_V2_VERIFIED")
+                    appendLine("Status Check: NOT performed. This report is a template; the endpoint was not contacted.")
+                    appendLine("Note: Simulated locally: nothing was submitted on-chain and no payment was claimed.")
                 }
                 ClawEarnExecutionResult(
                     success = true,
@@ -248,7 +248,7 @@ object ClawEarnService {
                 val report = buildString {
                     appendLine("Kora.Ai Autonomous Execution Report")
                     appendLine("Task: ${task.title}")
-                    appendLine("Requirements addressed completely. Delivered according to Claw Earn Base specification.")
+                    appendLine("Template report only. Simulated locally: nothing was submitted on-chain and no payment was claimed.")
                 }
                 ClawEarnExecutionResult(
                     success = true,

@@ -5,6 +5,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -99,6 +102,25 @@ class MainActivity : ComponentActivity() {
                             onMoltbookClick = { viewModel.openMoltbook() }
                         )
                     }
+                }
+
+                val showClearHistoryConfirm by viewModel.showClearHistoryConfirm.collectAsStateWithLifecycle()
+                if (showClearHistoryConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { viewModel.showClearHistoryConfirm.value = false },
+                        title = { Text("Clear this conversation?") },
+                        text = { Text("All messages and attached images in the current workspace will be permanently deleted.") },
+                        confirmButton = {
+                            TextButton(onClick = { viewModel.clearHistory(applicationContext) }) {
+                                Text("Delete")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { viewModel.showClearHistoryConfirm.value = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
                 }
 
                 if (isVoiceModeOpen) {

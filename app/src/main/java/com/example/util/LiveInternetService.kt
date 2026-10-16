@@ -21,6 +21,8 @@ data class LiveWebpage(
 )
 
 object LiveInternetService {
+    private const val MAX_REDIRECTS = 5
+    private const val MAX_BODY_BYTES = 2 * 1024 * 1024
     private const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
@@ -130,11 +132,39 @@ object LiveInternetService {
             }
 
             try {
-                val doc = Jsoup.connect(url)
-                    .userAgent(USER_AGENT)
-                    .timeout(10000)
-                    .followRedirects(true)
-                    .get()
+                // Follow redirects by hand so every hop is re-checked; a public URL must not be
+                // able to bounce the request onto the local network.
+                var currentUrl = url
+                var response: org.jsoup.Connection.Response? = null
+                for (hop in 0..MAX_REDIRECTS) {
+                    UrlSafety.rejectReason(currentUrl)?.let { reason ->
+                        return@withContext LiveWebpage(
+                            url = currentUrl,
+                            title = "Blocked URL",
+                            content = "This URL was not fetched: $reason.",
+                            metaDescription = ""
+                        )
+                    }
+                    val res = Jsoup.connect(currentUrl)
+                        .userAgent(USER_AGENT)
+                        .timeout(10000)
+                        .maxBodySize(MAX_BODY_BYTES)
+                        .followRedirects(false)
+                        .ignoreHttpErrors(true)
+                        .execute()
+                    val location = res.header("Location")
+                    if (res.statusCode() in 300..399 && !location.isNullOrBlank()) {
+                        currentUrl = java.net.URL(java.net.URL(currentUrl), location).toString()
+                        continue
+                    }
+                    response = res
+                    break
+                }
+                val finalResponse = response ?: throw java.io.IOException("Too many redirects")
+                if (finalResponse.statusCode() >= 400) {
+                    throw java.io.IOException("HTTP ${finalResponse.statusCode()}")
+                }
+                val doc = finalResponse.parse()
 
                 val title = doc.title().ifBlank { url }
                 val metaDesc = doc.select("meta[name=description]").attr("content").trim()
@@ -150,7 +180,7 @@ object LiveInternetService {
                 }
 
                 LiveWebpage(
-                    url = url,
+                    url = currentUrl,
                     title = title,
                     content = trimmedText.ifBlank { "No readable text content found on this webpage." },
                     metaDescription = metaDesc

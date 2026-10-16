@@ -1,19 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Backup / device-transfer rules for Android 12+.
+   Preferences holding API keys and agent credentials never leave the device.
    See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="omni_agent_prefs.xml" />
+        <exclude domain="sharedpref" path="moltbook_agent_prefs.xml" />
+        <exclude domain="sharedpref" path="seekclaw_prefs.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="omni_agent_prefs.xml" />
+        <exclude domain="sharedpref" path="moltbook_agent_prefs.xml" />
+        <exclude domain="sharedpref" path="seekclaw_prefs.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>

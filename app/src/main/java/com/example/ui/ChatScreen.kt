@@ -385,7 +385,7 @@ fun ChatScreen(
                     }
 
                     IconButton(
-                        onClick = { viewModel.clearHistory(context) },
+                        onClick = { viewModel.requestClearHistory() },
                         modifier = Modifier.testTag("clear_history_button")
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = "Clear History")
