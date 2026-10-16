@@ -179,7 +179,7 @@ fun DataAnalysisSheet(
                                 Text(
                                     text = h,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.width(100.dp).padding(4.dp)
                                 )
@@ -192,7 +192,7 @@ fun DataAnalysisSheet(
                                 row.forEach { cell ->
                                     Text(
                                         text = cell,
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         maxLines = 1,
                                         modifier = Modifier.width(100.dp).padding(4.dp)
                                     )

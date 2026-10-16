@@ -30,6 +30,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.api.ModelRegistry
+import com.example.ui.theme.status
 import com.example.util.LiveInternetService
 import com.example.util.LiveSearchResult
 import kotlinx.coroutines.launch
@@ -247,9 +248,9 @@ fun ModelSettingsDialog(
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = when (model.category) {
-                                                        "Lite" -> Color(0xFFE8F5E9)
-                                                        "Pro" -> Color(0xFFEDE7F6)
-                                                        else -> Color(0xFFE3F2FD)
+                                                        "Lite" -> MaterialTheme.colorScheme.tertiaryContainer
+                                                        "Pro" -> MaterialTheme.colorScheme.primaryContainer
+                                                        else -> MaterialTheme.colorScheme.secondaryContainer
                                                     }
                                                 ) {
                                                     Text(
@@ -257,9 +258,9 @@ fun ModelSettingsDialog(
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = when (model.category) {
-                                                            "Lite" -> Color(0xFF2E7D32)
-                                                            "Pro" -> Color(0xFF5E35B1)
-                                                            else -> Color(0xFF1565C0)
+                                                            "Lite" -> MaterialTheme.colorScheme.onTertiaryContainer
+                                                            "Pro" -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                            else -> MaterialTheme.colorScheme.onSecondaryContainer
                                                         },
                                                         fontWeight = FontWeight.Bold
                                                     )
@@ -382,7 +383,7 @@ fun ModelSettingsDialog(
                                         Text(
                                             text = "✓ Key saved successfully!",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = Color(0xFF2E7D32),
+                                            color = MaterialTheme.status.success,
                                             modifier = Modifier.padding(top = 4.dp)
                                         )
                                     }
@@ -483,7 +484,7 @@ fun ModelSettingsDialog(
                                             Icon(
                                                 imageVector = Icons.Default.Language,
                                                 contentDescription = null,
-                                                tint = if (isLiveInternetEnabled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.outline
+                                                tint = if (isLiveInternetEnabled) MaterialTheme.status.success else MaterialTheme.colorScheme.outline
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
@@ -618,7 +619,7 @@ fun ModelSettingsDialog(
                                             text = "✅ Found ${testSearchResults!!.size} live results:",
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF2E7D32)
+                                            color = MaterialTheme.status.success
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         testSearchResults!!.take(3).forEach { item ->
@@ -736,7 +737,7 @@ fun ModelSettingsDialog(
                                             text = "✅ Page Title: $testUrlTitle",
                                             style = MaterialTheme.typography.labelMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF2E7D32)
+                                            color = MaterialTheme.status.success
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(

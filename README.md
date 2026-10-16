@@ -8,7 +8,12 @@
 
 ### 💬 Chat
 - **Separate chats** per workspace: open the menu (☰) to switch chats, start a new one, or delete one. The home-screen widget's "New chat" button starts a fresh chat and keeps the old ones.
-- **Streaming replies**: text appears while Gemini writes it.
+- **Formatted, streaming replies**: Markdown (headings, lists, tables, quotes, code blocks, tappable links) renders as Gemini writes it. A **Stop** button ends a reply early and keeps what was written.
+- **Message actions**: long-press any message to copy, select text, share, read aloud, save, or open it in Canvas.
+- **Tools sheet**: the **+** button holds attachments, voice, Deep Research, images, Canvas, prompts, projects, memory and the integrations.
+
+### 🎙️ Voice chat
+Tap the waveform button (shown when the message box is empty) for a hands-free conversation. Kora listens, starts speaking as soon as the first sentence of its reply arrives, and then listens again. Tap the orb to interrupt or to finish talking. Every turn is saved in the chat. Speech recognition and text-to-speech use the phone's built-in services.
 - **Images, documents and voice notes**: attach photos (downscaled and sent as JPEG), text/CSV files (with automatic column statistics) and voice notes (transcribed on the device).
 - **Projects, memory, personas and prompt templates** are stored locally in a Room database.
 - **Export** a chat as Markdown or plain text.

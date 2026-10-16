@@ -226,7 +226,7 @@ fun PromptTemplateCard(
                     ) {
                         Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Set Persona", fontSize = 11.sp)
+                        Text("Set Persona", fontSize = 12.sp)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                 }
@@ -238,7 +238,7 @@ fun PromptTemplateCard(
                 ) {
                     Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Use Prompt", fontSize = 11.sp)
+                    Text("Use Prompt", fontSize = 12.sp)
                 }
             }
         }

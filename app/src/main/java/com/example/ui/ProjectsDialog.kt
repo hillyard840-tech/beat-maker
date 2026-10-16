@@ -214,7 +214,7 @@ fun ProjectsDialog(
                                             Text(
                                                 text = "⚙️ ${proj.customInstructions}",
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontSize = 11.sp,
+                                                fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.primary,
                                                 maxLines = 1
                                             )

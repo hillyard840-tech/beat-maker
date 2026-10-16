@@ -188,7 +188,7 @@ fun DeepResearchDialog(
                         items(researchState.logs) { log ->
                             Text(
                                 text = log,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

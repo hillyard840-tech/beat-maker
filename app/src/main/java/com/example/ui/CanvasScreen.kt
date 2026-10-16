@@ -81,7 +81,7 @@ fun CanvasScreen(
                             ) {
                                 Text(
                                     text = language.uppercase(),
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)

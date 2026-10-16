@@ -92,7 +92,7 @@ fun ImageGenDialog(
                         FilterChip(
                             selected = selectedStyle == style,
                             onClick = { selectedStyle = style },
-                            label = { Text(style, fontSize = 11.sp) }
+                            label = { Text(style, fontSize = 12.sp) }
                         )
                     }
                 }
@@ -104,7 +104,7 @@ fun ImageGenDialog(
                         FilterChip(
                             selected = selectedStyle == style,
                             onClick = { selectedStyle = style },
-                            label = { Text(style, fontSize = 11.sp) }
+                            label = { Text(style, fontSize = 12.sp) }
                         )
                     }
                 }

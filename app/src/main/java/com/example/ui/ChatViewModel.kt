@@ -91,6 +91,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (id == null) flowOf(emptyList<Message>()) else repository.messagesForConversation(id)
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    /** Title of the open chat for the top bar ("New chat" until the first message). */
+    val currentConversationTitle: StateFlow<String> = combine(conversations, currentConversationId) { list, id ->
+        list.firstOrNull { it.id == id }?.title ?: Conversation.DEFAULT_TITLE
+    }.stateIn(viewModelScope, SharingStarted.Lazily, Conversation.DEFAULT_TITLE)
+
     init {
         // Reopen the most recent chat of the default workspace.
         viewModelScope.launch {
@@ -178,6 +183,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val customApiKey = MutableStateFlow(
         prefs.getString("custom_api_key", "") ?: ""
     )
+
+    /** True when a usable Gemini key exists (custom or built in). */
+    val hasApiKey: StateFlow<Boolean> = customApiKey
+        .map { ApiKeys.resolve(it).isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ApiKeys.resolve(customApiKey.value).isNotEmpty())
 
     val autoFallbackEnabled = MutableStateFlow(
         prefs.getBoolean("auto_fallback", true)
@@ -461,9 +471,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // HOME SCREEN WIDGET ACTIONS (Feature 5)
     fun handleWidgetAction(action: String, context: Context) {
         when (action) {
-            "voice_mode" -> {
-                isVoiceModeOpen.value = true
-            }
+            "voice_mode" -> startVoiceChat()
             "camera_diagnostic" -> {
                 // Show the chat screen with the visual-diagnostics picker open.
                 isMoltbookOpen.value = false
@@ -599,9 +607,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
-            if (isVoiceAutoSpeak.value) {
-                voiceManager.speak("Deep research on $query is complete. Here is the synthesized findings report.")
-            }
         }
     }
 
@@ -746,8 +751,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var activeTurnJob: Job? = null
+    private var activeTurnChatId: Int? = null
+
+    /** Stops the reply being generated; whatever already streamed in is kept, marked as stopped. */
+    fun stopGeneration() {
+        val partial = streamingText.value
+        val chatId = activeTurnChatId
+        activeTurnJob?.cancel()
+        activeTurnJob = null
+        streamingText.value = null
+        liveInternetStatus.value = null
+        isLoading.value = false
+        voiceManager.stopSpeaking()
+        endVoiceTurnWithoutReply()
+        if (!partial.isNullOrBlank() && chatId != null) {
+            viewModelScope.launch {
+                insertInto(chatId, Message(role = "model", text = "$partial\n\n_(Stopped)_", projectId = currentProject.value?.id))
+            }
+        }
+    }
+
     fun sendMessage(text: String, imagePath: String?) {
-        viewModelScope.launch {
+        activeTurnJob = viewModelScope.launch {
             val detected = if (isAutoRoutingEnabled.value) {
                 IntentDetector.detect(text, hasAttachedDataset = attachedFile.value?.isTabularData == true)
             } else {
@@ -756,10 +782,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             // 0. Open the real Moltbook / Claw Earn screens. Nothing is posted automatically.
             if (detected.intent == IntentDetector.RoutedIntent.MOLTBOOK) {
+                endVoiceTurnWithoutReply()
                 openMoltbook()
                 return@launch
             }
             if (detected.intent == IntentDetector.RoutedIntent.CLAW_EARN) {
+                endVoiceTurnWithoutReply()
                 openClawEarn()
                 return@launch
             }
@@ -792,6 +820,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             // Pin the chat now so the reply lands here even if the user switches chats meanwhile.
             val chatId = ensureConversationId()
+            activeTurnChatId = chatId
             isLoading.value = true
             try {
                 // Attached file or voice note context
@@ -1141,11 +1170,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     }
                             }
                             if (usedLiveInternetDuringTurn) {
-                                modelText += "\n\n*(🌐 Sourced via Direct Live Internet)*"
+                                modelText += "\n\n*(Used live web results)*"
                             }
                             if (usedFallbackModel != null) {
-                                modelText += "\n\n*(⚡ Responded via quota-resilient `$usedFallbackModel`)*"
+                                modelText += "\n\n*(Answered by `$usedFallbackModel` because the selected model was rate-limited)*"
                             }
+                            finishVoiceTurn(
+                                if (textParts.isNotEmpty()) textParts.joinToString("") { it.text.orEmpty() } else modelText
+                            )
                             insertInto(chatId,
                                 Message(
                                     role = "model",
@@ -1156,11 +1188,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                             // The saved message replaces the live streaming bubble.
                             streamingText.value = null
-
-                            // Voice Mode Spoken Output (Feature 5)
-                            if (isVoiceAutoSpeak.value && isVoiceModeOpen.value) {
-                                voiceManager.speak(modelText)
-                            }
 
                             keepGoing = false
                         }
@@ -1187,7 +1214,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     insertInto(chatId,
                                         Message(
                                             role = "model",
-                                            text = if (usedLiveInternetDuringTurn) "$plainText\n\n*(🌐 Sourced via Direct Live Internet)*" else plainText,
+                                            text = if (usedLiveInternetDuringTurn) "$plainText\n\n*(Used live web results)*" else plainText,
                                             projectId = currentProject.value?.id
                                         )
                                     )
@@ -1279,17 +1306,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         request: GenerateContentRequest
     ): Pair<String, GenerateContentResponse> {
         try {
+            voiceSpokenOffset = 0 // each streamed step is new text
             val chunks = mutableListOf<GenerateContentResponse>()
             val visible = StringBuilder()
             withContext(Dispatchers.IO) {
                 RetrofitClient.service.generateContentStream(model, apiKey, request, "sse").use { body ->
                     val source = body.source()
-                    while (true) {
+                    while (isActive) {
                         val line = source.readUtf8Line() ?: break
                         val chunk = StreamParser.parseLine(line) ?: continue
                         chunks += chunk
                         visible.append(StreamParser.visibleText(listOf(chunk)))
-                        if (visible.isNotEmpty()) streamingText.value = visible.toString()
+                        if (visible.isNotEmpty()) {
+                            val soFar = visible.toString()
+                            streamingText.value = soFar
+                            if (isVoiceModeOpen.value) withContext(Dispatchers.Main) { speakStreamingReply(soFar) }
+                        }
                     }
                 }
             }
@@ -1403,6 +1435,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val id = chatId ?: ensureConversationId()
         repository.insert(message.copy(conversationId = id))
         repository.touchConversation(id)
+        if (message.role == "model" && isVoiceModeOpen.value && voiceAwaitingReply) {
+            voiceSpokenOffset = 0
+            finishVoiceTurn(message.text)
+        }
         if (message.role == "user") {
             val conversation = repository.getConversation(id)
             if (conversation != null && conversation.title == Conversation.DEFAULT_TITLE) {
@@ -1415,6 +1451,120 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun postMessage(message: Message) = insertInto(null, message)
+
+    // ==================== Voice chat ====================
+    // A hands-free loop: listen -> send -> speak the reply sentence by sentence -> listen again.
+
+    enum class VoicePhase { IDLE, LISTENING, THINKING, SPEAKING }
+
+    val voicePhase = MutableStateFlow(VoicePhase.IDLE)
+    val voiceError = MutableStateFlow<String?>(null)
+    /** The reply being spoken (shown under the orb). */
+    val voiceReply = MutableStateFlow("")
+    val voiceHandsFree = MutableStateFlow(prefs.getBoolean("voice_hands_free", true))
+
+    private var voiceAwaitingReply = false
+    private var voiceSpokenOffset = 0
+
+    fun startVoiceChat() {
+        voiceError.value = null
+        isVoiceModeOpen.value = true
+        // Listening starts from the voice screen once the microphone permission is confirmed.
+    }
+
+    fun stopVoiceChat() {
+        isVoiceModeOpen.value = false
+        voiceAwaitingReply = false
+        voiceManager.stopListening()
+        voiceManager.stopSpeaking()
+        voicePhase.value = VoicePhase.IDLE
+    }
+
+    fun setVoiceHandsFree(enabled: Boolean) {
+        voiceHandsFree.value = enabled
+        prefs.edit().putBoolean("voice_hands_free", enabled).apply()
+    }
+
+    fun startVoiceListening() {
+        if (!isVoiceModeOpen.value) return
+        voiceManager.stopSpeaking()
+        voiceError.value = null
+        voicePhase.value = VoicePhase.LISTENING
+        voiceManager.startListening(
+            onFinalResult = { spoken ->
+                voicePhase.value = VoicePhase.THINKING
+                voiceReply.value = ""
+                voiceAwaitingReply = true
+                voiceSpokenOffset = 0
+                sendMessage(spoken, null)
+            },
+            onError = { message ->
+                voicePhase.value = VoicePhase.IDLE
+                voiceError.value = message
+            }
+        )
+    }
+
+    /** Ends listening early; whatever was heard so far is sent. */
+    fun finishVoiceListening() {
+        voiceManager.stopListening()
+    }
+
+    /** Stops Kora mid-sentence and listens to the user instead. */
+    fun interruptVoiceReply() {
+        voiceManager.stopSpeaking()
+        voiceAwaitingReply = false
+        startVoiceListening()
+    }
+
+    /** Reads one message aloud (long-press "Read aloud"). */
+    fun readAloud(text: String) {
+        voiceManager.speak(text)
+    }
+
+    private fun speakStreamingReply(rawSoFar: String) {
+        if (!voiceAwaitingReply) return
+        voiceReply.value = rawSoFar
+        if (!isVoiceAutoSpeak.value || !voiceManager.canSpeak) return
+        if (voiceSpokenOffset >= VoiceManager.MAX_SPOKEN_CHARS) return
+        val (chunk, newOffset) = SpeechText.nextChunk(SpeechText.clean(rawSoFar), voiceSpokenOffset, final = false)
+        if (chunk.isNotBlank()) {
+            voiceManager.enqueueSpeech(chunk)
+            voicePhase.value = VoicePhase.SPEAKING
+        }
+        voiceSpokenOffset = newOffset
+    }
+
+    /** Called with the complete reply text: speaks whatever hasn't been spoken, then listens again. */
+    private fun finishVoiceTurn(replyText: String) {
+        if (!isVoiceModeOpen.value || !voiceAwaitingReply) return
+        voiceAwaitingReply = false
+        voiceReply.value = replyText
+        if (!isVoiceAutoSpeak.value || !voiceManager.canSpeak) {
+            onVoiceReplyDone()
+            return
+        }
+        if (voiceSpokenOffset < VoiceManager.MAX_SPOKEN_CHARS) {
+            val (rest, _) = SpeechText.nextChunk(SpeechText.clean(replyText), voiceSpokenOffset, final = true)
+            voiceManager.enqueueSpeech(rest.take(VoiceManager.MAX_SPOKEN_CHARS))
+        } else {
+            voiceManager.enqueueSpeech("The rest of the answer is on screen.")
+        }
+        voicePhase.value = VoicePhase.SPEAKING
+        voiceManager.finishSpeechQueue { onVoiceReplyDone() }
+    }
+
+    private fun onVoiceReplyDone() {
+        voicePhase.value = VoicePhase.IDLE
+        if (isVoiceModeOpen.value && voiceHandsFree.value) startVoiceListening()
+    }
+
+    private fun endVoiceTurnWithoutReply() {
+        if (voiceAwaitingReply) {
+            voiceAwaitingReply = false
+            voicePhase.value = VoicePhase.IDLE
+        }
+    }
 
     // ==================== Third-party screens ====================
 

@@ -65,7 +65,7 @@ fun ChatsDialog(viewModel: ChatViewModel, onDismiss: () -> Unit) {
                                 )
                                 Text(
                                     dateFormat.format(Date(conversation.updatedAt)),
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Skill
+import com.example.ui.theme.status
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -165,14 +166,14 @@ fun DashboardScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = if (areBackgroundTasksPaused) Color(0xFFFF9800).copy(alpha = 0.2f)
-                                        else Color(0xFF4CAF50).copy(alpha = 0.2f)
+                                        color = if (areBackgroundTasksPaused) MaterialTheme.status.warning.copy(alpha = 0.16f)
+                                        else MaterialTheme.status.success.copy(alpha = 0.16f)
                                     ) {
                                         Text(
                                             text = if (areBackgroundTasksPaused) "PAUSED" else operationalState.displayName.uppercase(),
-                                            fontSize = 10.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (areBackgroundTasksPaused) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                            color = if (areBackgroundTasksPaused) MaterialTheme.status.warning else MaterialTheme.status.success,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }

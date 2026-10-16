@@ -15,7 +15,7 @@ import com.example.ui.CanvasScreen
 import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
-import com.example.ui.VoiceModeOverlay
+import com.example.ui.VoiceChatScreen
 import com.example.ui.clawearn.ClawEarnScreen
 import com.example.ui.moltbook.MoltbookScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -116,9 +116,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (isVoiceModeOpen) {
-                    VoiceModeOverlay(
+                    VoiceChatScreen(
                         viewModel = viewModel,
-                        onDismiss = { viewModel.isVoiceModeOpen.value = false }
+                        onDismiss = { viewModel.stopVoiceChat() }
                     )
                 }
             }
