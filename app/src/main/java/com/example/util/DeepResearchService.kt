@@ -21,8 +21,7 @@ object DeepResearchService {
     suspend fun executeDeepResearch(
         query: String,
         siteRestrictions: String = "",
-        model: String,
-        apiKey: String,
+        generate: suspend (GenerateContentRequest) -> GenerateContentResponse,
         onProgress: (DeepResearchState) -> Unit
     ): String = withContext(Dispatchers.IO) {
         val logs = mutableListOf<String>()
@@ -166,7 +165,7 @@ object DeepResearchService {
                 )
             )
 
-            val response = RetrofitClient.service.generateContent(model, apiKey, request)
+            val response = generate(request)
             val reportText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                 ?: "Deep research synthesis could not be completed."
 

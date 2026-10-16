@@ -22,8 +22,8 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
                 return@withContext Result.success()
             }
 
-            val apiKey = ApiKeys.resolve(prefs.getString("custom_api_key", ""))
-            if (apiKey.isEmpty()) return@withContext Result.success()
+            val settings = LlmSettings.fromPrefs(prefs)
+            if (!settings.isReady) return@withContext Result.success()
 
             val topics = listOf(
                 "Python & Memory Mgmt",
@@ -44,10 +44,11 @@ class LearningWorker(appContext: Context, workerParams: WorkerParameters) :
 
             // Strictly use ultra-lightweight models for background tasks to conserve user quota
             var text: String? = null
-            val learningModels = ModelRegistry.ALIAS_FALLBACKS
+            // OpenAI-compatible servers use their own configured model, so one attempt is enough.
+            val learningModels = if (settings.provider == LlmProvider.GEMINI) ModelRegistry.ALIAS_FALLBACKS else listOf("")
             for (model in learningModels) {
                 try {
-                    val response = RetrofitClient.service.generateContent(model, apiKey, request)
+                    val response = LlmGateway.generate(settings, model, request)
                     text = response.candidates.firstOrNull()?.content?.parts
                         ?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                     if (text != null) break

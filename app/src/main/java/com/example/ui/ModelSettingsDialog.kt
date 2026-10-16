@@ -48,6 +48,8 @@ fun ModelSettingsDialog(
     val isLiveInternetEnabled by viewModel.isLiveInternetEnabled.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     val liveModels by ModelRegistry.models.collectAsStateWithLifecycle()
+    val llmProvider by viewModel.llmProvider.collectAsStateWithLifecycle()
+    val compatModelName by viewModel.compatModel.collectAsStateWithLifecycle()
     val modelLoadError by ModelRegistry.loadError.collectAsStateWithLifecycle()
 
     // Load the real model list for this key when the dialog opens.
@@ -100,7 +102,7 @@ fun ModelSettingsDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Active: $selectedModel",
+                            text = if (llmProvider == com.example.api.LlmProvider.OPENAI_COMPATIBLE) "Active: your server · $compatModelName" else "Active: $selectedModel",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -124,7 +126,7 @@ fun ModelSettingsDialog(
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Quota & API Key") },
+                        text = { Text("Provider & keys") },
                         icon = { Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     )
                     Tab(
@@ -195,6 +197,14 @@ fun ModelSettingsDialog(
                             }
                         }
 
+                        if (llmProvider == com.example.api.LlmProvider.OPENAI_COMPATIBLE) {
+                            Text(
+                                "Chats currently go to your OpenAI-compatible server (model \"$compatModelName\"). These Gemini models are used only if you switch back to Gemini in \"Provider & keys\".",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
                         // Model List (from the Gemini models.list API for this key)
                         val filteredModels = liveModels.filter {
                             categoryFilter == "All" || it.category.equals(categoryFilter, ignoreCase = true)
@@ -300,6 +310,8 @@ fun ModelSettingsDialog(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        item { ProviderSettingsCard(viewModel) }
+
                         // Auto-Fallback Switch
                         item {
                             Card(

@@ -18,6 +18,14 @@ Tap the waveform button (shown when the message box is empty) for a hands-free c
 - **Projects, memory, personas and prompt templates** are stored locally in a Room database.
 - **Export** a chat as Markdown or plain text.
 
+### 🔌 FreeLLMAPI and other OpenAI-compatible servers
+Kora can send chats to your own [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) (or any OpenAI-compatible server) instead of Gemini:
+1. Run FreeLLMAPI. To reach it from your phone over Wi-Fi, start it with `HOST_BIND=0.0.0.0` (it only accepts connections from the computer itself by default).
+2. In Kora: **Settings → Provider & keys → OpenAI-compatible server**.
+3. Enter the server address (e.g. `http://192.168.1.20:3001`, `http://localhost:3001` if FreeLLMAPI runs on the phone in Termux, or an `https://` address), the **unified key** from the FreeLLMAPI Keys page, and a model (`auto` lets FreeLLMAPI pick). Tap **Save & test**.
+
+Chat, streaming, Stop, voice chat, Canvas, Deep Research and Learning Mode all use the chosen server. Web-search tools are used when the routed model supports tool calling; otherwise Kora retries without them. Plain `http://` is only accepted for addresses on your own network; anything on the internet needs `https://`. Image generation still uses Gemini's Imagen.
+
 ### 🌐 Live web access
 - Gemini can call two tools: `search_live_web` (DuckDuckGo, with Wikipedia as a fallback) and `fetch_website` (page text via Jsoup).
 - Addresses on your local network, non-http(s) URLs and redirects to private addresses are blocked, so a malicious page can't make the app probe your router or LAN.

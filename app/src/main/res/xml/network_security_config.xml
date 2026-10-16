@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Plain http is allowed at the platform level so Kora can reach a self-hosted server on your own
+    Wi-Fi (for example FreeLLMAPI at http://192.168.1.20:3001). The app itself only permits http
+    for local addresses (see OpenAiCompat.baseUrlProblem); Gemini and every other service use https.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

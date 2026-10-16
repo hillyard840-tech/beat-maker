@@ -200,10 +200,92 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         prefs.getString("custom_api_key", "") ?: ""
     )
 
-    /** True when a usable Gemini key exists (custom or built in). */
-    val hasApiKey: StateFlow<Boolean> = customApiKey
-        .map { ApiKeys.resolve(it).isNotEmpty() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ApiKeys.resolve(customApiKey.value).isNotEmpty())
+    // Which backend answers: Google Gemini, or an OpenAI-compatible server such as FreeLLMAPI.
+    val llmProvider = MutableStateFlow(LlmProvider.from(prefs.getString(LlmSettings.PREF_PROVIDER, null)))
+    val compatBaseUrl = MutableStateFlow(prefs.getString(LlmSettings.PREF_COMPAT_BASE_URL, "").orEmpty())
+    val compatApiKey = MutableStateFlow(prefs.getString(LlmSettings.PREF_COMPAT_API_KEY, "").orEmpty())
+    val compatModel = MutableStateFlow(
+        prefs.getString(LlmSettings.PREF_COMPAT_MODEL, LlmSettings.DEFAULT_COMPAT_MODEL).orEmpty().ifBlank { LlmSettings.DEFAULT_COMPAT_MODEL }
+    )
+    val compatModels = MutableStateFlow<List<String>>(emptyList())
+    val compatStatus = MutableStateFlow<String?>(null)
+    val isTestingCompat = MutableStateFlow(false)
+
+    fun llmSettings(): LlmSettings = LlmSettings(
+        provider = llmProvider.value,
+        geminiKey = getEffectiveApiKey(),
+        compat = CompatConfig(compatBaseUrl.value.trim(), compatApiKey.value.trim(), compatModel.value.trim().ifBlank { LlmSettings.DEFAULT_COMPAT_MODEL })
+    )
+
+    private val isCompat: Boolean get() = llmProvider.value == LlmProvider.OPENAI_COMPATIBLE
+
+    /** True when the selected provider is set up (Gemini key, or a server address). */
+    val hasApiKey: StateFlow<Boolean> = combine(customApiKey, llmProvider, compatBaseUrl) { key, provider, base ->
+        when (provider) {
+            LlmProvider.GEMINI -> ApiKeys.resolve(key).isNotEmpty()
+            LlmProvider.OPENAI_COMPATIBLE -> base.isNotBlank()
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, llmSettings().isReady)
+
+    fun setLlmProvider(provider: LlmProvider) {
+        llmProvider.value = provider
+        prefs.edit().putString(LlmSettings.PREF_PROVIDER, provider.id).apply()
+    }
+
+    /** Saves the OpenAI-compatible server settings. Returns a problem message, or null if saved. */
+    fun saveCompatSettings(baseUrl: String, apiKey: String, model: String): String? {
+        val normalized = OpenAiCompat.normalizeBaseUrl(baseUrl)
+        OpenAiCompat.baseUrlProblem(normalized)?.let { return it }
+        compatBaseUrl.value = normalized
+        compatApiKey.value = apiKey.trim()
+        compatModel.value = model.trim().ifBlank { LlmSettings.DEFAULT_COMPAT_MODEL }
+        prefs.edit()
+            .putString(LlmSettings.PREF_COMPAT_BASE_URL, compatBaseUrl.value)
+            .putString(LlmSettings.PREF_COMPAT_API_KEY, compatApiKey.value)
+            .putString(LlmSettings.PREF_COMPAT_MODEL, compatModel.value)
+            .apply()
+        return null
+    }
+
+    fun setCompatModel(model: String) {
+        compatModel.value = model
+        prefs.edit().putString(LlmSettings.PREF_COMPAT_MODEL, model).apply()
+    }
+
+    /** Lists the server's models (GET /models) and sends a tiny test prompt. */
+    fun testCompatConnection() {
+        viewModelScope.launch {
+            isTestingCompat.value = true
+            compatStatus.value = null
+            val cfg = llmSettings().compat
+            try {
+                compatModels.value = try {
+                    OpenAiCompatClient.models(cfg)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList() // listing models is optional on some servers
+                }
+                val reply = OpenAiCompatClient.chat(
+                    cfg,
+                    GenerateContentRequest(contents = listOf(Content(role = "user", parts = listOf(Part(text = "Reply with the single word: OK")))))
+                )
+                val text = reply.candidates.firstOrNull()?.content?.parts?.mapNotNull { it.text }?.joinToString("")?.trim()
+                compatStatus.value = if (text.isNullOrBlank()) {
+                    "Connected, but the model returned an empty reply."
+                } else {
+                    "✅ Connected. Model replied: \"${text.take(60)}\"" +
+                        if (compatModels.value.isNotEmpty()) " · ${compatModels.value.size} models available" else ""
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                compatStatus.value = "❌ ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                isTestingCompat.value = false
+            }
+        }
+    }
 
     val autoFallbackEnabled = MutableStateFlow(
         prefs.getBoolean("auto_fallback", true)
@@ -543,8 +625,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun executeCanvasAiAction(instruction: String) {
         viewModelScope.launch {
-            val apiKey = getEffectiveApiKey()
-            if (apiKey.isEmpty()) return@launch
+            val settings = llmSettings()
+            if (!settings.isReady) return@launch
             isCanvasLoading.value = true
 
             try {
@@ -567,7 +649,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
                     systemInstruction = Content(parts = listOf(Part(text = "You are a precise writing and coding engine. Return only the revised code or document directly.")))
                 )
-                val res = RetrofitClient.service.generateContent(selectedModel.value, apiKey, req)
+                val res = LlmGateway.generate(settings, selectedModel.value, req)
                 val newText = res.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                 if (!newText.isNullOrBlank()) {
                     canvasContent.value = stripCodeFence(newText)
@@ -584,12 +666,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun runDeepResearch(query: String, siteRestrictions: String = "") {
         viewModelScope.launch {
             val chatId = ensureConversationId()
-            val apiKey = getEffectiveApiKey()
-            if (apiKey.isEmpty()) {
+            val settings = llmSettings()
+            if (!settings.isReady) {
                 insertInto(chatId,
                     Message(
                         role = "model",
-                        text = "⚠️ **API Key Required**: Please provide your Gemini API key to run Deep Research.",
+                        text = "⚠️ **API Key Required**: Set up Gemini or your OpenAI-compatible server in Settings to run Deep Research.",
                         projectId = currentProject.value?.id
                     )
                 )
@@ -600,8 +682,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val finalReport = DeepResearchService.executeDeepResearch(
                 query = query,
                 siteRestrictions = siteRestrictions,
-                model = selectedModel.value,
-                apiKey = apiKey,
+                generate = { req -> LlmGateway.generate(settings, selectedModel.value, req) },
                 onProgress = { state ->
                     deepResearchState.value = state
                 }
@@ -984,14 +1065,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                val apiKey = getEffectiveApiKey()
-                if (apiKey.isEmpty()) {
+                val settings = llmSettings()
+                val apiKey = settings.geminiKey
+                if (!settings.isReady) {
                     insertInto(chatId,
                         Message(
                             role = "model",
-                            text = "⚠️ **Gemini API Key Required**\n\n" +
+                            text = if (settings.provider == LlmProvider.OPENAI_COMPATIBLE) {
+                                "⚠️ **Server Not Set Up**\n\nAdd your OpenAI-compatible server address (for example your FreeLLMAPI URL) and API key in Settings."
+                            } else {
+                                "⚠️ **Gemini API Key Required**\n\n" +
                                     "No active API key is set or the current key is a placeholder.\n\n" +
-                                    "Tap **'Enter API Key'** below to paste your free Gemini API key from Google AI Studio (https://aistudio.google.com).",
+                                    "Tap **'Enter API Key'** below to paste your free Gemini API key from Google AI Studio (https://aistudio.google.com)."
+                            },
                             projectId = currentProject.value?.id
                         )
                     )
@@ -1107,7 +1193,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         val actualModelUsed = response.first
                         val contentResponse = response.second
 
-                        if (actualModelUsed != targetModel) {
+                        if (!isCompat && actualModelUsed != targetModel) {
                             usedFallbackModel = actualModelUsed
                         }
 
@@ -1234,7 +1320,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     contents = listOf(Content(role = "user", parts = listOf(Part(text = promptText)))),
                                     systemInstruction = Content(parts = listOf(Part(text = "You are Kora.Ai, an intelligent assistant. Thoroughly analyze and respond to the request.")))
                                 )
-                                val plainRes = RetrofitClient.service.generateContent(targetModel, apiKey, plainReq)
+                                val plainRes = LlmGateway.generate(settings, targetModel, plainReq)
                                 val plainText = plainRes.candidates.firstOrNull()?.content?.parts?.firstOrNull { it.thought != true && !it.text.isNullOrBlank() }?.text
                                 if (!plainText.isNullOrBlank()) {
                                     insertInto(chatId,
@@ -1257,7 +1343,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         val isDailyCap = isQuotaError && (errorDetails?.contains("PerDay", ignoreCase = true) == true ||
                                 errorDetails?.contains("daily", ignoreCase = true) == true)
 
-                        if (isQuotaError) {
+                        if (isQuotaError && !isCompat) {
                             switchToLiteModel()
                         }
 
@@ -1267,15 +1353,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                         "Google reports that this API key has used its daily request quota.\n\n" +
                                         "• Daily quotas reset automatically (Google documents the reset time and limits for your tier in AI Studio).\n" +
                                         "• Or tap **'Enter API Key'** to use a different key or one with billing enabled.\n\n" +
-                                        "Details from Google: ${errorDetails?.take(300)}"
+                                        "Details from ${if (isCompat) "your server" else "Google"}: ${errorDetails?.take(300)}"
                             }
                             isQuotaError -> {
                                 "⚠️ **Gemini API Rate Limit**\n\n" +
                                         "Google temporarily rejected the request because this key hit a rate limit.\n\n" +
                                         "• Wait a little, then tap **'Retry'** below.\n" +
-                                        "• The app switched to a lighter model: **${selectedModel.value}**.\n" +
+                                        (if (isCompat) "• Your server may be out of free quota on its providers; add more provider keys to it.\n" else "• The app switched to a lighter model: **${selectedModel.value}**.\n") +
                                         "• Or tap **'Enter API Key'** to use a key with higher limits.\n\n" +
-                                        "Details from Google: ${errorDetails?.take(300)}"
+                                        "Details from ${if (isCompat) "your server" else "Google"}: ${errorDetails?.take(300)}"
                             }
                             else -> {
                                 "Error: $errorDetails"
@@ -1331,6 +1417,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         apiKey: String,
         request: GenerateContentRequest
     ): Pair<String, GenerateContentResponse> {
+        if (isCompat) return callCompatStreaming(request)
         try {
             voiceSpokenOffset = 0 // each streamed step is new text
             val chunks = mutableListOf<GenerateContentResponse>()
@@ -1359,6 +1446,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             throw e
         }
+    }
+
+    /** Streaming for OpenAI-compatible servers (FreeLLMAPI does its own provider failover). */
+    private suspend fun callCompatStreaming(request: GenerateContentRequest): Pair<String, GenerateContentResponse> {
+        val settings = llmSettings()
+        voiceSpokenOffset = 0
+        val visible = StringBuilder()
+        suspend fun onPiece(piece: String) {
+            visible.append(piece)
+            val soFar = visible.toString()
+            streamingText.value = soFar
+            if (isVoiceModeOpen.value) withContext(Dispatchers.Main) { speakStreamingReply(soFar) }
+        }
+        val response = try {
+            OpenAiCompatClient.stream(settings.compat, request) { onPiece(it) }
+        } catch (e: CompatApiException) {
+            // Many free models can't call tools; ask again without them rather than failing.
+            if (visible.isEmpty() && !request.tools.isNullOrEmpty() && OpenAiCompat.looksLikeToolsUnsupported(e.message, e.errorCode)) {
+                OpenAiCompatClient.stream(settings.compat, request, includeTools = false) { onPiece(it) }
+            } else {
+                throw e
+            }
+        }
+        return settings.compat.model to response
     }
 
     private suspend fun callWithFallback(
