@@ -6,7 +6,8 @@ class MessageRepository(
     private val messageDao: MessageDao,
     private val memoryDao: MemoryDao,
     private val projectDao: ProjectDao,
-    private val conversationDao: ConversationDao
+    private val conversationDao: ConversationDao,
+    private val agentActionDao: AgentActionDao
 ) {
     val allMessages: Flow<List<Message>> = messageDao.getAllMessages()
     val allMemories: Flow<List<MemoryItem>> = memoryDao.getAllMemories()
@@ -36,6 +37,7 @@ class MessageRepository(
         messageDao.clearHistoryForProject(project.id)
         conversationDao.deleteForProject(project.id)
         projectDao.deleteProject(project)
+        agentActionDao.deleteOrphans()
     }
 
     suspend fun imagePathsForProject(projectId: Int): List<String> = messageDao.getImagePathsForProject(projectId)
@@ -51,9 +53,17 @@ class MessageRepository(
     suspend fun imagePathsForConversation(id: Int): List<String> = messageDao.getImagePathsForConversation(id)
     suspend fun messagesOnce(conversationId: Int): List<Message> = messageDao.getMessagesForConversationOnce(conversationId)
 
+    // Phone action cards
+    fun actionsForConversation(conversationId: Int): Flow<List<AgentAction>> = agentActionDao.forConversation(conversationId)
+    suspend fun actionsOnce(conversationId: Int): List<AgentAction> = agentActionDao.forConversationOnce(conversationId)
+    suspend fun insertAction(action: AgentAction): Int = agentActionDao.insert(action).toInt()
+    suspend fun getAction(id: Int): AgentAction? = agentActionDao.getById(id)
+    suspend fun updateActionStatus(id: Int, status: String, note: String?) = agentActionDao.updateStatus(id, status, note)
+
     /** Deletes a conversation and all of its messages. */
     suspend fun deleteConversation(id: Int) {
         messageDao.clearConversation(id)
+        agentActionDao.deleteForConversation(id)
         conversationDao.delete(id)
     }
 }

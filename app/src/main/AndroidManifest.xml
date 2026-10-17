@@ -5,6 +5,23 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Reminders and scheduled tasks -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Phone actions: hand alarms/timers to the clock app, read the calendar when asked -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <!-- "Open <app>" needs to see launchable apps (Android 11+ package visibility) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -48,6 +65,22 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/kora_widget_info" />
+        </receiver>
+
+        <!-- Reminders, scheduled tasks, and re-arming them after a reboot or update -->
+        <receiver
+            android:name=".agent.ReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".agent.TaskAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".agent.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
         </receiver>
     </application>
 

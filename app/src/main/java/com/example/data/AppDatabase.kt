@@ -7,13 +7,23 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Message::class, Skill::class, MemoryItem::class, Project::class, Conversation::class], version = 5, exportSchema = false)
+@Database(
+    entities = [
+        Message::class, Skill::class, MemoryItem::class, Project::class, Conversation::class,
+        AgentAction::class, Reminder::class, ScheduledTask::class
+    ],
+    version = 6,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun skillDao(): SkillDao
     abstract fun memoryDao(): MemoryDao
     abstract fun projectDao(): ProjectDao
     abstract fun conversationDao(): ConversationDao
+    abstract fun agentActionDao(): AgentActionDao
+    abstract fun reminderDao(): ReminderDao
+    abstract fun scheduledTaskDao(): ScheduledTaskDao
 
     companion object {
         private const val DATABASE_NAME = "chat-database"
@@ -51,12 +61,56 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v6 adds phone action cards, reminders and scheduled tasks. Nothing existing changes. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `agent_actions` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`conversationId` INTEGER, " +
+                        "`tool` TEXT NOT NULL, " +
+                        "`argsJson` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`details` TEXT NOT NULL, " +
+                        "`status` TEXT NOT NULL, " +
+                        "`resultNote` TEXT, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reminders` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`triggerAt` INTEGER NOT NULL, " +
+                        "`conversationId` INTEGER, " +
+                        "`isDone` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `scheduled_tasks` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`prompt` TEXT NOT NULL, " +
+                        "`hour` INTEGER NOT NULL, " +
+                        "`minute` INTEGER NOT NULL, " +
+                        "`repeat` TEXT NOT NULL, " +
+                        "`enabled` INTEGER NOT NULL, " +
+                        "`useWeb` INTEGER NOT NULL, " +
+                        "`conversationId` INTEGER, " +
+                        "`nextRunAt` INTEGER, " +
+                        "`lastRunAt` INTEGER, " +
+                        "`lastResult` TEXT, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
         /**
          * Single shared instance. Opening the same database file through several Room instances
-         * (e.g. ViewModel + LearningWorker) breaks Flow invalidation, so writes from the worker
+         * (e.g. ViewModel + background workers) breaks Flow invalidation, so writes from the worker
          * would never show up in the UI until restart.
          */
         fun getInstance(context: Context): AppDatabase =
@@ -66,7 +120,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
                     // Versions before 4 never shipped schemas we can migrate from.
                     .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()

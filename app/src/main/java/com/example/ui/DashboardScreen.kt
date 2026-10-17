@@ -1,63 +1,36 @@
 package com.example.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Skill
-import com.example.ui.theme.status
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: ChatViewModel,
     onBack: () -> Unit,
+    onOpenReminders: () -> Unit = {},
     onOpenClawEarn: () -> Unit = {},
     onOpenMoltbook: () -> Unit = {}
 ) {
     val skills by viewModel.skills.collectAsStateWithLifecycle()
-    val isLearningModeEnabled by viewModel.isLearningModeEnabled.collectAsStateWithLifecycle()
+    val reminders by viewModel.reminders.collectAsStateWithLifecycle()
+    val tasks by viewModel.scheduledTasks.collectAsStateWithLifecycle()
     val areBackgroundTasksPaused by viewModel.areBackgroundTasksPaused.collectAsStateWithLifecycle()
-    val operationalState by viewModel.operationalState.collectAsStateWithLifecycle()
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val memories by viewModel.memories.collectAsStateWithLifecycle()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var showLearningQuotaWarning by remember { mutableStateOf(false) }
-
-    if (showLearningQuotaWarning) {
-        AlertDialog(
-            onDismissRequest = { showLearningQuotaWarning = false },
-            title = { Text("Turn on Learning Mode?") },
-            text = {
-                Text(
-                    "While it's on, the app sends one request to Gemini about every 3 hours in the background, " +
-                        "even when you aren't using it. Each request counts against your API key's quota " +
-                        "(and costs money if billing is enabled on the key). You can turn it off at any time."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showLearningQuotaWarning = false
-                    viewModel.toggleLearningMode(context, true)
-                }) { Text("Turn on") }
-            },
-            dismissButton = { TextButton(onClick = { showLearningQuotaWarning = false }) { Text("Cancel") } }
-        )
-    }
 
     Scaffold(
         topBar = {
@@ -141,109 +114,31 @@ fun DashboardScreen(
                 )
             }
 
-            // Learning Mode & Background Tasks Card
+            // Reminders & scheduled tasks (replaces the old Learning Mode)
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (areBackgroundTasksPaused) MaterialTheme.colorScheme.surfaceVariant
-                        else if (isLearningModeEnabled) MaterialTheme.colorScheme.tertiaryContainer 
-                        else MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Autonomous Background Tasks",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (areBackgroundTasksPaused) MaterialTheme.status.warning.copy(alpha = 0.16f)
-                                        else MaterialTheme.status.success.copy(alpha = 0.16f)
-                                    ) {
-                                        Text(
-                                            text = if (areBackgroundTasksPaused) "PAUSED" else operationalState.displayName.uppercase(),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (areBackgroundTasksPaused) MaterialTheme.status.warning else MaterialTheme.status.success,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (areBackgroundTasksPaused) "Paused - background research & sync suspended"
-                                    else if (isLearningModeEnabled) "Active - acquiring skill insights periodically"
-                                    else "Active - awaiting background routines",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // Quick-toggle switch
-                            Switch(
-                                checked = !areBackgroundTasksPaused,
-                                onCheckedChange = { isActive ->
-                                    viewModel.toggleBackgroundTasks(context, paused = !isActive)
-                                }
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Learning Worker:",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isLearningModeEnabled) "Enabled (Every 3 hrs)" else "Disabled",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.weight(1f))
-                            TextButton(
-                                onClick = {
-                                    if (isLearningModeEnabled) {
-                                        viewModel.toggleLearningMode(context, false)
-                                    } else {
-                                        showLearningQuotaWarning = true
-                                    }
-                                }
-                            ) {
-                                Text(if (isLearningModeEnabled) "Turn Off" else "Turn On")
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    text = "Learning Topics",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                val upcoming = reminders.count { !it.isDone }
+                val active = tasks.count { it.enabled }
+                IntegrationCard(
+                    emoji = "⏰",
+                    title = "Reminders & tasks",
+                    subtitle = buildString {
+                        append("$upcoming upcoming reminder${if (upcoming == 1) "" else "s"} · $active scheduled task${if (active == 1) "" else "s"}")
+                        if (areBackgroundTasksPaused) append(" · tasks paused")
+                    },
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    onClick = onOpenReminders
                 )
             }
 
-            if (skills.isEmpty()) {
+            // Insights saved by the old Learning Mode are kept, but nothing adds new ones.
+            if (skills.isNotEmpty()) {
                 item {
                     Text(
-                        text = "No insights yet. When Learning Mode is on, Kora asks Gemini for a short practical insight on one topic every few hours and saves it here.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Saved insights",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-            } else {
                 items(skills) { skill ->
                     SkillItem(skill)
                 }

@@ -55,4 +55,16 @@ class IntentDetectorTest {
         assertEquals(RoutedIntent.MOLTBOOK, IntentDetector.detect("open moltbook").intent)
         assertEquals(RoutedIntent.CLAW_EARN, IntentDetector.detect("show me claw earn tasks").intent)
     }
+
+    @Test
+    fun `remember to is a reminder, not a memory`() {
+        org.junit.Assert.assertNotEquals(
+            IntentDetector.RoutedIntent.PERSISTENT_MEMORY,
+            IntentDetector.detect("remember to call mom at 6pm").intent
+        )
+        org.junit.Assert.assertEquals(
+            IntentDetector.RoutedIntent.PERSISTENT_MEMORY,
+            IntentDetector.detect("remember that I live in Denver").intent
+        )
+    }
 }

@@ -24,7 +24,7 @@ Kora can send chats to your own [FreeLLMAPI](https://github.com/tashfeenahmed/fr
 2. In Kora: **Settings → Provider & keys → OpenAI-compatible server**.
 3. Enter the server address (e.g. `http://192.168.1.20:3001`, `http://localhost:3001` if FreeLLMAPI runs on the phone in Termux, or an `https://` address), the **unified key** from the FreeLLMAPI Keys page, and a model (`auto` lets FreeLLMAPI pick). Tap **Save & test**.
 
-Chat, streaming, Stop, voice chat, Canvas, Deep Research and Learning Mode all use the chosen server. Web-search tools are used when the routed model supports tool calling; otherwise Kora retries without them. Plain `http://` is only accepted for addresses on your own network; anything on the internet needs `https://`. Image generation still uses Gemini's Imagen.
+Chat, streaming, Stop, voice chat, phone actions, Canvas, Deep Research and scheduled tasks all use the chosen server. Web-search tools are used when the routed model supports tool calling; otherwise Kora retries without them. Plain `http://` is only accepted for addresses on your own network; anything on the internet needs `https://`. Image generation still uses Gemini's Imagen.
 
 ### 🌐 Live web access
 - Gemini can call two tools: `search_live_web` (DuckDuckGo, with Wikipedia as a fallback) and `fetch_website` (page text via Jsoup).
@@ -40,8 +40,11 @@ Uses an Imagen model that your API key has access to (found through the Gemini m
 ### ⚡ Models
 The model list comes from Gemini's `models.list` API for your key. The default is Google's `gemini-flash-lite-latest` alias. When a model is rate-limited, the app can retry with a lighter model that your key can use.
 
-### 🧠 Learning Mode (optional)
-When it's on, a background job asks Gemini for one short insight on a rotating topic about every 3 hours. Each run uses one request from your API quota, and the app asks you to confirm before turning it on. The dashboard shows how many real insights were collected per topic, along with the latest one.
+### 📱 Phone actions
+Ask in plain words and Kora can set reminders, alarms and timers, add calendar events, read your calendar, draft texts and emails, open Maps, the dialer or another app, and schedule tasks. Anything that changes something or leaves the app appears as a card in the chat and **only runs when you tap Confirm**; texts, emails and calls are drafted, never sent. Alarms and timers go to your clock app, events open in your calendar app ready to save. Permissions (notifications, calendar) are asked for only when an action first needs them.
+
+### ⏰ Reminders & scheduled tasks
+Reminders arrive as notifications at the set time, even after a reboot. Scheduled tasks let Kora run a prompt on its own, every day, on weekdays or once (for example a morning briefing with weather, news and your calendar), save the answer in that task's chat and notify you. Tasks can search the web and read your calendar but can never act on the phone. Each run uses AI requests from your key or server; the Reminders & tasks screen (⋮ menu, Tools, or Dashboard) lets you edit, pause, run or delete them, and the Background tasks switch pauses all of them. This replaces the old Learning Mode; insights it saved stay on the Dashboard.
 
 ### 🦞 Moltbook
 A real client for [moltbook.com](https://www.moltbook.com), a public social network for AI agents. You can register an agent (or paste an existing API key), open the claim link, read the feed, post, comment and vote. Posts are public, and nothing is posted automatically.
@@ -56,6 +59,8 @@ A read-only view of the public Claw Earn task board on aiagentstore.ai. Taking o
 - Settings that hold API keys are excluded from cloud backup and device transfer.
 - Deleting a chat requires confirmation and also removes its images.
 - Text from web pages and files is treated as untrusted data in the system prompt.
+- Phone actions never run without your tap on Confirm, and background tasks can only read (web, calendar), never act.
+- Calendar events are read on the phone and sent to the AI only when you ask about your schedule.
 
 ---
 

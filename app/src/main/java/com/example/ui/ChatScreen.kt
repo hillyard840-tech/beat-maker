@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.data.AgentAction
 import com.example.data.Message
 import com.example.ui.theme.status
 import com.example.util.ChatTimeline
@@ -56,6 +57,7 @@ fun ChatScreen(
     onMoltbookClick: () -> Unit = { viewModel.openMoltbook() }
 ) {
     val messages by viewModel.displayedMessages.collectAsStateWithLifecycle()
+    val actions by viewModel.actions.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val isLiveInternetEnabled by viewModel.isLiveInternetEnabled.collectAsStateWithLifecycle()
@@ -85,7 +87,6 @@ fun ChatScreen(
     val isDeepResearchOpen by viewModel.isDeepResearchOpen.collectAsStateWithLifecycle()
     val operationalState by viewModel.operationalState.collectAsStateWithLifecycle()
     val areBackgroundTasksPaused by viewModel.areBackgroundTasksPaused.collectAsStateWithLifecycle()
-    val isLearningModeEnabled by viewModel.isLearningModeEnabled.collectAsStateWithLifecycle()
 
     var inputFieldState by remember { mutableStateOf(TextFieldValue("")) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -183,8 +184,11 @@ fun ChatScreen(
         OperationalStateDialog(
             state = operationalState,
             areTasksPaused = areBackgroundTasksPaused,
-            isLearningModeEnabled = isLearningModeEnabled,
-            onToggleTasks = { isPaused -> viewModel.toggleBackgroundTasks(context, paused = isPaused) },
+            onToggleTasks = { isPaused -> viewModel.toggleBackgroundTasks(paused = isPaused) },
+            onOpenReminders = {
+                showOperationalStateDialog = false
+                viewModel.isRemindersOpen.value = true
+            },
             onDismiss = { showOperationalStateDialog = false }
         )
     }
@@ -206,6 +210,7 @@ fun ChatScreen(
                     ToolAction.PROMPTS -> viewModel.openPromptTemplates()
                     ToolAction.PROJECTS -> viewModel.showProjectsDialog.value = true
                     ToolAction.MEMORY -> viewModel.showMemoryDialog.value = true
+                    ToolAction.REMINDERS -> viewModel.isRemindersOpen.value = true
                     ToolAction.MOLTBOOK -> onMoltbookClick()
                     ToolAction.CLAW_EARN -> onClawEarnClick()
                 }
@@ -254,13 +259,20 @@ fun ChatScreen(
             // Follow new messages and the streaming reply, but don't yank the list while the user
             // is reading older messages (unless they just sent something).
             val lastIsUser = messages.lastOrNull()?.role == "user"
-            LaunchedEffect(messages.size, streamingText?.length) {
+            LaunchedEffect(messages.size, actions.size, streamingText?.length) {
                 val total = listState.layoutInfo.totalItemsCount
                 if (total > 0 && (isAtBottom || lastIsUser)) listState.scrollToItem(total - 1)
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                val showEmpty = messages.isEmpty() && streamingText == null && !isLoading
+                // Messages and action cards in time order. Cards are hidden while searching.
+                val filtering = isSearchOpen && (searchQuery.isNotBlank() || isBookmarkFilterActive)
+                val timeline = remember(messages, actions, filtering) {
+                    val items = messages.map { TimelineEntry(it.timestamp, message = it) } +
+                        (if (filtering) emptyList() else actions.map { TimelineEntry(it.createdAt, action = it) })
+                    items.sortedBy { it.timestamp }
+                }
+                val showEmpty = timeline.isEmpty() && streamingText == null && !isLoading
                 if (showEmpty) {
                     if (isSearchOpen && (searchQuery.isNotBlank() || isBookmarkFilterActive)) {
                         Text(
@@ -286,11 +298,20 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    itemsIndexed(messages, key = { _, m -> m.id }) { index, message ->
-                        val previous = messages.getOrNull(index - 1)
-                        if (ChatTimeline.needsSeparator(previous?.timestamp, message.timestamp)) {
-                            TimeSeparator(ChatTimeline.label(message.timestamp))
+                    itemsIndexed(timeline, key = { _, e -> e.key }) { index, entry ->
+                        val previous = timeline.getOrNull(index - 1)
+                        if (ChatTimeline.needsSeparator(previous?.timestamp, entry.timestamp)) {
+                            TimeSeparator(ChatTimeline.label(entry.timestamp))
                         }
+                        entry.action?.let { action ->
+                            ActionCard(
+                                action = action,
+                                onConfirm = { viewModel.confirmAction(it) },
+                                onCancel = { viewModel.cancelAction(it) },
+                                onCalendarPermission = { a, granted -> viewModel.onCalendarPermissionResult(a, granted) }
+                            )
+                        }
+                        val message = entry.message ?: return@itemsIndexed
                         MessageBubble(
                             message = message,
                             onOpenSettingsTab = { tab -> openSettings(tab) },
@@ -564,6 +585,7 @@ private fun ChatTopBar(
                         if (memories.isEmpty()) "Memory" else "Memory (${memories.size})"
                     ) { showMenu = false; viewModel.showMemoryDialog.value = true }
                     MenuItem(Icons.Default.Insights, "Dashboard") { showMenu = false; onOpenDashboard() }
+                    MenuItem(Icons.Default.Alarm, "Reminders & tasks") { showMenu = false; viewModel.isRemindersOpen.value = true }
                     MenuItem(Icons.Default.Tune, "Background tasks") { showMenu = false; onOpenStatus() }
                     MenuItem(Icons.Default.Settings, "Settings") { showMenu = false; onOpenSettings() }
                     MenuItem(Icons.Default.DarkMode, "Theme") { showMenu = false; showThemeDialog = true }
@@ -595,7 +617,6 @@ private fun StatusDot(state: AgentOperationalState, modifier: Modifier = Modifie
 @Composable
 fun statusColor(state: AgentOperationalState) = when (state) {
     AgentOperationalState.IDLE -> MaterialTheme.status.success
-    AgentOperationalState.LEARNING_MODE -> MaterialTheme.status.success
     AgentOperationalState.RESEARCHING -> MaterialTheme.status.info
     AgentOperationalState.GENERATING -> MaterialTheme.colorScheme.primary
     AgentOperationalState.TASKS_PAUSED -> MaterialTheme.status.warning
@@ -787,13 +808,12 @@ private fun VisualDiagnosticsDialog(onDismiss: () -> Unit, onPick: (String) -> U
 fun OperationalStateDialog(
     state: AgentOperationalState,
     areTasksPaused: Boolean,
-    isLearningModeEnabled: Boolean,
     onToggleTasks: (Boolean) -> Unit,
+    onOpenReminders: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val icon = when (state) {
         AgentOperationalState.IDLE -> Icons.Default.CheckCircle
-        AgentOperationalState.LEARNING_MODE -> Icons.Default.Psychology
         AgentOperationalState.RESEARCHING -> Icons.Default.TravelExplore
         AgentOperationalState.GENERATING -> Icons.Default.AutoAwesome
         AgentOperationalState.TASKS_PAUSED -> Icons.Default.PauseCircle
@@ -808,13 +828,10 @@ fun OperationalStateDialog(
                 Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Background tasks", style = MaterialTheme.typography.titleSmall)
+                            Text("Scheduled tasks", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                text = when {
-                                    areTasksPaused -> "Paused. Nothing runs in the background."
-                                    isLearningModeEnabled -> "Learning Mode runs about every 3 hours."
-                                    else -> "Allowed. Learning Mode is off, so nothing is scheduled."
-                                },
+                                text = if (areTasksPaused) "Paused. Tasks are skipped; reminders still arrive."
+                                else "On. Tasks you scheduled run at their set times.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -822,8 +839,18 @@ fun OperationalStateDialog(
                         Switch(checked = !areTasksPaused, onCheckedChange = { active -> onToggleTasks(!active) })
                     }
                 }
+                TextButton(onClick = onOpenReminders) {
+                    Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reminders & tasks")
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
+}
+
+/** One row of the chat: a message or an action card. */
+private data class TimelineEntry(val timestamp: Long, val message: Message? = null, val action: AgentAction? = null) {
+    val key: String get() = message?.let { "m${it.id}" } ?: "a${action?.id}"
 }

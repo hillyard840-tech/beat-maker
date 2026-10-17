@@ -16,6 +16,7 @@ import com.example.ui.CanvasScreen
 import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
+import com.example.ui.RemindersScreen
 import com.example.ui.VoiceChatScreen
 import com.example.ui.clawearn.ClawEarnScreen
 import com.example.ui.moltbook.MoltbookScreen
@@ -24,6 +25,8 @@ import com.example.ui.theme.MyApplicationTheme
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_ACTION = "EXTRA_ACTION"
+        /** Set by reminder and task notifications: the chat to open. */
+        const val EXTRA_CONVERSATION_ID = "EXTRA_CONVERSATION_ID"
     }
 
     private var chatViewModel: ChatViewModel? = null
@@ -36,6 +39,7 @@ class MainActivity : ComponentActivity() {
         // rotation) the same intent is redelivered, and re-running "new_chat" would wipe the
         // conversation again.
         val action = if (savedInstanceState == null) consumeWidgetAction(intent) else null
+        val openChatId = if (savedInstanceState == null) consumeConversationId(intent) else null
 
         setContent {
             val viewModel: ChatViewModel = viewModel()
@@ -54,12 +58,16 @@ class MainActivity : ComponentActivity() {
                         viewModel.handleWidgetAction(action, applicationContext)
                     }
                 }
+                LaunchedEffect(openChatId) {
+                    openChatId?.let { viewModel.openConversation(it) }
+                }
 
                 var showDashboard by remember { mutableStateOf(false) }
                 val isMoltbookOpen by viewModel.isMoltbookOpen.collectAsStateWithLifecycle()
                 val isClawEarnOpen by viewModel.isClawEarnOpen.collectAsStateWithLifecycle()
                 val isCanvasOpen by viewModel.isCanvasOpen.collectAsStateWithLifecycle()
                 val isVoiceModeOpen by viewModel.isVoiceModeOpen.collectAsStateWithLifecycle()
+                val isRemindersOpen by viewModel.isRemindersOpen.collectAsStateWithLifecycle()
 
                 when {
                     isMoltbookOpen -> {
@@ -80,10 +88,20 @@ class MainActivity : ComponentActivity() {
                             onClose = { viewModel.closeCanvas() }
                         )
                     }
+                    isRemindersOpen -> {
+                        RemindersScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.isRemindersOpen.value = false }
+                        )
+                    }
                     showDashboard -> {
                         DashboardScreen(
                             viewModel = viewModel,
                             onBack = { showDashboard = false },
+                            onOpenReminders = {
+                                showDashboard = false
+                                viewModel.isRemindersOpen.value = true
+                            },
                             onOpenClawEarn = {
                                 showDashboard = false
                                 viewModel.openClawEarn()
@@ -139,6 +157,12 @@ class MainActivity : ComponentActivity() {
         return action
     }
 
+    private fun consumeConversationId(intent: Intent?): Int? {
+        val id = intent?.getIntExtra(EXTRA_CONVERSATION_ID, -1) ?: -1
+        intent?.removeExtra(EXTRA_CONVERSATION_ID)
+        return id.takeIf { it > 0 }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -146,5 +170,6 @@ class MainActivity : ComponentActivity() {
         if (!action.isNullOrBlank()) {
             chatViewModel?.handleWidgetAction(action, applicationContext)
         }
+        consumeConversationId(intent)?.let { chatViewModel?.openConversation(it) }
     }
 }

@@ -57,7 +57,8 @@ object IntentDetector {
     )
 
     private val MEMORY_PATTERNS = listOf(
-        Regex("""^(?:remember\s+(?:that\s+)?|keep\s+in\s+mind\s+(?:that\s+)?|never\s+forget\s+(?:that\s+)?|save\s+to\s+memory(?:\s+that)?)\s*(.+)""", RegexOption.IGNORE_CASE)
+        // "remember to call mom at 6" is a reminder for the model's tools, not a fact to store.
+        Regex("""^(?:remember\s+(?!to\s)(?:that\s+)?|keep\s+in\s+mind\s+(?:that\s+)?|never\s+forget\s+(?:that\s+)?|save\s+to\s+memory(?:\s+that)?)\s*(.+)""", RegexOption.IGNORE_CASE)
     )
 
     private val CANVAS_PATTERNS = listOf(

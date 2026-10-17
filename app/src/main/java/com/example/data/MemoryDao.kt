@@ -13,6 +13,9 @@ interface MemoryDao {
     @Query("SELECT * FROM memories ORDER BY timestamp DESC")
     fun getAllMemories(): Flow<List<MemoryItem>>
 
+    @Query("SELECT * FROM memories ORDER BY timestamp DESC")
+    suspend fun allOnce(): List<MemoryItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemory(memory: MemoryItem)
 

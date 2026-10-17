@@ -47,6 +47,8 @@ fun VoiceChatScreen(viewModel: ChatViewModel, onDismiss: () -> Unit) {
     val volume by viewModel.voiceManager.volumeLevel.collectAsStateWithLifecycle()
     val handsFree by viewModel.voiceHandsFree.collectAsStateWithLifecycle()
     val speakReplies by viewModel.isVoiceAutoSpeak.collectAsStateWithLifecycle()
+    val actions by viewModel.actions.collectAsStateWithLifecycle()
+    val pendingActions = actions.filter { it.status == com.example.data.AgentAction.STATUS_PENDING }
 
     var hasPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -184,6 +186,16 @@ fun VoiceChatScreen(viewModel: ChatViewModel, onDismiss: () -> Unit) {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+
+            // Actions Kora proposed by voice still need a tap to confirm.
+            pendingActions.takeLast(2).forEach { action ->
+                ActionCard(
+                    action = action,
+                    onConfirm = { viewModel.confirmAction(it) },
+                    onCancel = { viewModel.cancelAction(it) },
+                    onCalendarPermission = { a, granted -> viewModel.onCalendarPermissionResult(a, granted) }
+                )
             }
 
             Spacer(Modifier.weight(1f))

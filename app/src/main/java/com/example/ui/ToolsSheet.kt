@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 enum class ToolAction {
     PHOTO, DIAGNOSE, FILE, AUDIO_FILE, VOICE_NOTE, VOICE_CHAT,
     DEEP_RESEARCH, IMAGE, CANVAS, PROMPTS,
-    PROJECTS, MEMORY, MOLTBOOK, CLAW_EARN
+    PROJECTS, MEMORY, REMINDERS, MOLTBOOK, CLAW_EARN
 }
 
 private data class Tool(val action: ToolAction, val label: String, val icon: ImageVector)
@@ -44,6 +44,7 @@ private val SECTIONS = listOf(
     "Workspace" to listOf(
         Tool(ToolAction.PROJECTS, "Projects", Icons.Default.Folder),
         Tool(ToolAction.MEMORY, "Memory", Icons.Default.Psychology),
+        Tool(ToolAction.REMINDERS, "Reminders & tasks", Icons.Default.Alarm),
         Tool(ToolAction.MOLTBOOK, "Moltbook", Icons.Default.Forum),
         Tool(ToolAction.CLAW_EARN, "Claw Earn", Icons.Default.Work)
     )
