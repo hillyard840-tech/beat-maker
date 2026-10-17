@@ -8,6 +8,7 @@ import com.example.agent.AgentRunner
 import com.example.agent.TaskScheduler
 import com.example.api.LlmSettings
 import com.example.data.AppDatabase
+import com.example.data.Earning
 import com.example.data.SavedOpportunity
 import com.example.data.ScheduledTask
 import kotlinx.coroutines.CancellationException
@@ -35,6 +36,8 @@ class OpportunitiesViewModel(application: Application) : AndroidViewModel(applic
 
     val jobQuery = MutableStateFlow(profile.value.jobQuery)
     val remoteOnly = MutableStateFlow(true)
+    /** Show only listings that are digital tasks Kora can draft. */
+    val draftableOnly = MutableStateFlow(false)
     val jobs = MutableStateFlow<Load<JobBoards.Result>>(Load.Idle)
     val incomeIdeas = MutableStateFlow<Load<IdeaEngine.Batch>>(Load.Idle)
     val buildTopic = MutableStateFlow("")
@@ -44,6 +47,53 @@ class OpportunitiesViewModel(application: Application) : AndroidViewModel(applic
     val notice = MutableStateFlow<String?>(null)
 
     private var jobsJob: Job? = null
+
+    // Earnings tracker
+    private val earningDao = AppDatabase.getInstance(application).earningDao()
+    val earnings: StateFlow<List<Earning>> = earningDao.all().stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val currency = MutableStateFlow(EarningsStore.currency(application))
+    val goalCents = MutableStateFlow(EarningsStore.goalCents(application))
+
+    fun addEarning(source: String, amountText: String, hoursText: String, note: String, earnedAt: Long): Boolean {
+        val cents = EarningsMath.parseAmount(amountText) ?: return false
+        val minutes = hoursText.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it <= 1000 }?.let { (it * 60).toInt() }
+        viewModelScope.launch {
+            earningDao.insert(Earning(source = source.trim().ifEmpty { "Other" }.take(60), amountCents = cents, minutes = minutes, note = note.trim().take(200), earnedAt = earnedAt))
+            notice.value = "Logged ${EarningsMath.format(cents, currency.value)}"
+        }
+        return true
+    }
+
+    fun deleteEarning(id: Int) {
+        viewModelScope.launch { earningDao.delete(id) }
+    }
+
+    fun saveEarningsSettings(code: String, goalText: String) {
+        val clean = code.trim().uppercase().take(3).takeIf { c -> runCatching { java.util.Currency.getInstance(c) }.isSuccess } ?: currency.value
+        val goal = if (goalText.isBlank()) 0L else EarningsMath.parseAmount(goalText) ?: goalCents.value
+        EarningsStore.saveSettings(getApplication(), clean, goal)
+        currency.value = clean
+        goalCents.value = goal
+    }
+
+    /** A Sunday-evening task where Kora reviews the tracker and suggests what to focus on. */
+    fun createMoneyCheckIn() {
+        viewModelScope.launch {
+            TaskScheduler.save(
+                getApplication(),
+                ScheduledTask(
+                    title = "Weekly money check-in",
+                    prompt = "Call read_earnings. Review my week: what I earned vs my monthly goal, my real hourly rate per income source, " +
+                        "which source is worth more of my time and which to drop or reprice. Give me 3 concrete actions for next week. Be honest and brief.",
+                    hour = 18,
+                    minute = 0,
+                    repeat = ScheduledTask.REPEAT_SUNDAYS,
+                    useWeb = false
+                )
+            )
+            notice.value = "Kora will review your earnings with you"
+        }
+    }
 
     fun saveProfile(updated: IncomeProfile) {
         profile.value = updated

@@ -14,7 +14,7 @@ data class ScheduledTask(
     val prompt: String,
     val hour: Int,
     val minute: Int,
-    /** One of [REPEAT_DAILY], [REPEAT_WEEKDAYS], [REPEAT_ONCE]. */
+    /** One of [REPEAT_DAILY], [REPEAT_WEEKDAYS], [REPEAT_SUNDAYS], [REPEAT_ONCE]. */
     val repeat: String = REPEAT_DAILY,
     val enabled: Boolean = true,
     /** Whether the task may search and read the web. */
@@ -29,5 +29,7 @@ data class ScheduledTask(
         const val REPEAT_DAILY = "daily"
         const val REPEAT_WEEKDAYS = "weekdays"
         const val REPEAT_ONCE = "once"
+        /** Weekly, on Sunday. */
+        const val REPEAT_SUNDAYS = "sundays"
     }
 }

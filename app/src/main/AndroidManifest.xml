@@ -42,6 +42,12 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Share a job offer, message or link to Kora to check it for scams -->
+            <intent-filter android:label="Check with Kora">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- FileProvider for Sharing Transcripts and Documents -->

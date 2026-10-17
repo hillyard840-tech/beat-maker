@@ -114,5 +114,6 @@ private fun iconFor(tool: String): ImageVector = when (tool) {
     AgentTools.DIAL_NUMBER -> Icons.Default.Call
     AgentTools.OPEN_APP -> Icons.Default.Apps
     AgentTools.SCHEDULE_TASK -> Icons.Default.Schedule
+    AgentTools.LOG_EARNING -> Icons.Default.Savings
     else -> Icons.Default.TouchApp
 }

@@ -338,7 +338,7 @@ private fun TaskEditorDialog(initial: ScheduledTask, onDismiss: () -> Unit, onSa
                 )
                 TimeInput(state = time)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(ScheduledTask.REPEAT_DAILY, ScheduledTask.REPEAT_WEEKDAYS, ScheduledTask.REPEAT_ONCE).forEach { option ->
+                    listOf(ScheduledTask.REPEAT_DAILY, ScheduledTask.REPEAT_WEEKDAYS, ScheduledTask.REPEAT_SUNDAYS, ScheduledTask.REPEAT_ONCE).forEach { option ->
                         FilterChip(selected = repeat == option, onClick = { repeat = option }, label = { Text(AgentTime.repeatLabel(option)) })
                     }
                 }

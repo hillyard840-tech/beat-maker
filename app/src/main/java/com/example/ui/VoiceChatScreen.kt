@@ -55,12 +55,12 @@ fun VoiceChatScreen(viewModel: ChatViewModel, onDismiss: () -> Unit) {
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPermission = granted
-        if (granted) viewModel.startVoiceListening()
+        if (granted) viewModel.beginVoiceSession()
     }
 
     // Start listening as soon as the screen opens (asking for the mic the first time).
     LaunchedEffect(Unit) {
-        if (hasPermission) viewModel.startVoiceListening() else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (hasPermission) viewModel.beginVoiceSession() else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
     BackHandler(onBack = onDismiss)
 

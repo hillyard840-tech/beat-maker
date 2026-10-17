@@ -96,7 +96,6 @@ class AgentToolsTest {
     fun `background tasks can only read`() {
         val names = AgentTools.forTask(webEnabled = true, calendarReadable = true)!!.flatMap { it.functionDeclarations.orEmpty() }.map { it.name }
         assertTrue(names.none { it in AgentTools.CONFIRM_TOOLS })
-        assertEquals(null, AgentTools.forTask(webEnabled = false, calendarReadable = false))
     }
 
     @Test
@@ -104,5 +103,22 @@ class AgentToolsTest {
         val original = args("title" to "Call mom", "hour" to 7)
         assertEquals(original, AgentTools.argsOf(AgentTools.argsJson(original)))
         assertTrue(AgentTools.argsOf("not json").isEmpty())
+    }
+
+    @Test
+    fun `log earning validates amount, hours and date`() {
+        assertTrue(prepare(AgentTools.LOG_EARNING, "source" to "Fiverr", "amount" to 45.5) is AgentTools.Prepared.Card)
+        assertEquals("Log 45.50 from Fiverr", (prepare(AgentTools.LOG_EARNING, "source" to "Fiverr", "amount" to "45.5") as AgentTools.Prepared.Card).title)
+        assertTrue(prepare(AgentTools.LOG_EARNING, "source" to "Fiverr", "amount" to -3) is AgentTools.Prepared.Invalid)
+        assertTrue(prepare(AgentTools.LOG_EARNING, "amount" to 10) is AgentTools.Prepared.Invalid)
+        assertTrue(prepare(AgentTools.LOG_EARNING, "source" to "x", "amount" to 10, "date" to "2027-01-01") is AgentTools.Prepared.Invalid)
+        assertTrue(prepare(AgentTools.LOG_EARNING, "source" to "x", "amount" to 10, "hours" to 0) is AgentTools.Prepared.Invalid)
+        assertEquals("sundays", AgentTools.normalizeRepeat("weekly"))
+    }
+
+    @Test
+    fun `earnings can be read in background tasks but not logged`() {
+        val names = AgentTools.forTask(webEnabled = false, calendarReadable = false)!!.flatMap { it.functionDeclarations.orEmpty() }.map { it.name }
+        assertEquals(listOf(AgentTools.READ_EARNINGS), names)
     }
 }

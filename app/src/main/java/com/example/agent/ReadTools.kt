@@ -112,6 +112,7 @@ object ReadTools {
         AgentTools.READ_CALENDAR -> readCalendar(context, AgentTools.int(args, "days") ?: 1)
             ?: "Calendar access hasn't been granted. A card asking for it is shown to the user; tell them to tap Allow and then ask again."
         AgentTools.LIST_REMINDERS -> listRemindersAndTasks(context)
+        AgentTools.READ_EARNINGS -> com.example.income.EarningsStore.describe(context)
         else -> null
     }
 }

@@ -82,4 +82,12 @@ class AgentTimeTest {
         assertEquals("45 s", AgentTime.duration(45))
         assertTrue(AgentTime.duration(0).isNotEmpty())
     }
+
+    @Test
+    fun `sundays repeat weekly on sunday`() {
+        val wednesday = at(2026, Calendar.OCTOBER, 14, 9, 0)
+        assertEquals(at(2026, Calendar.OCTOBER, 18, 18, 0), AgentTime.nextRun(18, 0, "sundays", wednesday, zone))
+        val sundayEvening = at(2026, Calendar.OCTOBER, 18, 19, 0)
+        assertEquals(at(2026, Calendar.OCTOBER, 25, 18, 0), AgentTime.nextRun(18, 0, "sundays", sundayEvening, zone))
+    }
 }

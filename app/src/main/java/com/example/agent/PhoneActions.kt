@@ -142,6 +142,20 @@ object PhoneActions {
                 val next = com.example.data.AppDatabase.getInstance(context).scheduledTaskDao().getById(id)?.nextRunAt
                 Outcome(true, "Scheduled" + (next?.let { ". First run ${AgentTime.label(it)}" } ?: ""))
             }
+            AgentTools.LOG_EARNING -> {
+                val cents = s("amount")?.let { com.example.income.EarningsMath.parseAmount(it) } ?: return Outcome(false, "Invalid amount")
+                val at = s("date")?.let { AgentTime.parseLocal(it) }?.let { it + 12 * 60 * 60 * 1000L } ?: System.currentTimeMillis()
+                com.example.data.AppDatabase.getInstance(context).earningDao().insert(
+                    com.example.data.Earning(
+                        source = s("source") ?: "Other",
+                        amountCents = cents,
+                        minutes = s("hours")?.toDoubleOrNull()?.let { (it * 60).toInt() }?.takeIf { it > 0 },
+                        note = s("note").orEmpty(),
+                        earnedAt = at
+                    )
+                )
+                Outcome(true, "Logged ${com.example.income.EarningsMath.format(cents, com.example.income.EarningsStore.currency(context))}")
+            }
             else -> Outcome(false, "This action isn't supported")
         }
     }

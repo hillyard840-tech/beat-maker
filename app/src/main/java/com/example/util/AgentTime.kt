@@ -51,7 +51,8 @@ object AgentTime {
 
     /**
      * Next time a task at [hour]:[minute] should run, strictly after [now]. "weekdays" skips
-     * Saturday and Sunday; "daily" and "once" take the next matching clock time.
+     * Saturday and Sunday, "sundays" runs weekly on Sunday; "daily" and "once" take the next
+     * matching clock time.
      */
     fun nextRun(hour: Int, minute: Int, repeat: String, now: Long, zone: TimeZone = TimeZone.getDefault()): Long {
         val cal = Calendar.getInstance(zone).apply {
@@ -62,6 +63,9 @@ object AgentTime {
             set(Calendar.MILLISECOND, 0)
         }
         if (cal.timeInMillis <= now) cal.add(Calendar.DAY_OF_YEAR, 1)
+        if (repeat == "sundays") {
+            while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY) cal.add(Calendar.DAY_OF_YEAR, 1)
+        }
         if (repeat == "weekdays") {
             while (cal.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
                 cal.add(Calendar.DAY_OF_YEAR, 1)
@@ -95,6 +99,7 @@ object AgentTime {
     /** "Every day", "Weekdays" or "Once". */
     fun repeatLabel(repeat: String): String = when (repeat) {
         "weekdays" -> "Weekdays"
+        "sundays" -> "Sundays"
         "once" -> "Once"
         else -> "Every day"
     }

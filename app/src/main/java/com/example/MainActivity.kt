@@ -17,6 +17,7 @@ import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
 import com.example.ui.OpportunitiesScreen
+import com.example.ui.OpportunityActions
 import com.example.ui.RemindersScreen
 import com.example.ui.VoiceChatScreen
 import com.example.ui.clawearn.ClawEarnScreen
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
         // conversation again.
         val action = if (savedInstanceState == null) consumeWidgetAction(intent) else null
         val openChatId = if (savedInstanceState == null) consumeConversationId(intent) else null
+        val shared = if (savedInstanceState == null) consumeSharedText(intent) else null
 
         setContent {
             val viewModel: ChatViewModel = viewModel()
@@ -62,6 +64,9 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(openChatId) {
                     openChatId?.let { viewModel.openConversation(it) }
                 }
+                LaunchedEffect(shared) {
+                    shared?.let { viewModel.receiveSharedText(it) }
+                }
 
                 var showDashboard by remember { mutableStateOf(false) }
                 val isMoltbookOpen by viewModel.isMoltbookOpen.collectAsStateWithLifecycle()
@@ -82,7 +87,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     isClawEarnOpen -> {
-                        ClawEarnScreen(onClose = { viewModel.closeClawEarn() })
+                        ClawEarnScreen(
+                            onClose = { viewModel.closeClawEarn() },
+                            onDraftWithKora = { prompt -> viewModel.askInNewChat(prompt) }
+                        )
                     }
                     isCanvasOpen -> {
                         CanvasScreen(
@@ -93,19 +101,19 @@ class MainActivity : ComponentActivity() {
                     isOpportunitiesOpen -> {
                         OpportunitiesScreen(
                             onBack = { viewModel.isOpportunitiesOpen.value = false },
-                            onAskKora = { prompt ->
-                                viewModel.isOpportunitiesOpen.value = false
-                                viewModel.newChat()
-                                viewModel.sendMessage(prompt, null)
-                            },
-                            onOpenCanvas = { title, markdown ->
-                                viewModel.isOpportunitiesOpen.value = false
-                                viewModel.openCanvas(title, markdown, "markdown")
-                            },
-                            onOpenAgentJobs = {
-                                viewModel.isOpportunitiesOpen.value = false
-                                viewModel.openClawEarn()
-                            }
+                            actions = OpportunityActions(
+                                askKora = { prompt -> viewModel.askInNewChat(prompt) },
+                                practiceInterview = { title, company, details -> viewModel.startInterviewPractice(title, company, details) },
+                                scamCheck = { text -> viewModel.startScamCheck(text) },
+                                openCanvas = { title, markdown ->
+                                    viewModel.isOpportunitiesOpen.value = false
+                                    viewModel.openCanvas(title, markdown, "markdown")
+                                },
+                                openAgentJobs = {
+                                    viewModel.isOpportunitiesOpen.value = false
+                                    viewModel.openClawEarn()
+                                }
+                            )
                         )
                     }
                     isRemindersOpen -> {
@@ -165,6 +173,28 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                val sharedText by viewModel.sharedText.collectAsStateWithLifecycle()
+                sharedText?.let { text ->
+                    AlertDialog(
+                        onDismissRequest = { viewModel.sharedText.value = null },
+                        title = { Text("What should Kora do?") },
+                        text = { Text(text.take(300) + if (text.length > 300) "…" else "", maxLines = 8) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.sharedText.value = null
+                                viewModel.startScamCheck(text)
+                            }) { Text("Check for scams") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                viewModel.sharedText.value = null
+                                viewModel.newChat()
+                                viewModel.pendingInputText.value = text
+                            }) { Text("Ask about it") }
+                        }
+                    )
+                }
+
                 if (isVoiceModeOpen) {
                     VoiceChatScreen(
                         viewModel = viewModel,
@@ -181,6 +211,16 @@ class MainActivity : ComponentActivity() {
         return action
     }
 
+    /** Text (or a link) shared to Kora from another app's Share menu. */
+    private fun consumeSharedText(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return null
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+        val body = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        intent.removeExtra(Intent.EXTRA_TEXT)
+        intent.action = Intent.ACTION_MAIN
+        return listOf(subject, body).filter { it.isNotBlank() }.distinct().joinToString("\n").ifBlank { null }
+    }
+
     private fun consumeConversationId(intent: Intent?): Int? {
         val id = intent?.getIntExtra(EXTRA_CONVERSATION_ID, -1) ?: -1
         intent?.removeExtra(EXTRA_CONVERSATION_ID)
@@ -195,5 +235,6 @@ class MainActivity : ComponentActivity() {
             chatViewModel?.handleWidgetAction(action, applicationContext)
         }
         consumeConversationId(intent)?.let { chatViewModel?.openConversation(it) }
+        consumeSharedText(intent)?.let { chatViewModel?.receiveSharedText(it) }
     }
 }

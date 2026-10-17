@@ -32,6 +32,8 @@ object AgentTools {
     const val OPEN_APP = "open_app"
     const val SCHEDULE_TASK = "schedule_task"
     const val LIST_REMINDERS = "list_reminders_and_tasks"
+    const val LOG_EARNING = "log_earning"
+    const val READ_EARNINGS = "read_earnings"
 
     /** Not a model tool: the card that asks for calendar access when read_calendar can't run. */
     const val GRANT_CALENDAR = "grant_calendar_access"
@@ -79,6 +81,11 @@ object AgentTools {
         name = READ_CALENDAR,
         description = "Reads the user's upcoming calendar events from the phone. Use it for questions about their schedule.",
         parameters = obj(mapOf("days" to int("How many days ahead to read, 1 to 14. Default 1 (today).")))
+    )
+
+    val readEarningsDeclaration = FunctionDeclaration(
+        name = READ_EARNINGS,
+        description = "Reads the user's earnings tracker: this month vs their goal, totals and real hourly rate per income source, and recent entries."
     )
 
     val phoneDeclarations = listOf(
@@ -155,7 +162,7 @@ object AgentTools {
                     "prompt" to str("What Kora should do each time, written as an instruction"),
                     "hour" to int("Hour, 0-23"),
                     "minute" to int("Minute, 0-59"),
-                    "repeat" to str("daily, weekdays or once")
+                    "repeat" to str("daily, weekdays, weekly (Sundays) or once")
                 ),
                 listOf("title", "prompt", "hour", "minute")
             )
@@ -163,7 +170,22 @@ object AgentTools {
         FunctionDeclaration(
             name = LIST_REMINDERS,
             description = "Lists the user's upcoming reminders and scheduled tasks in Kora."
-        )
+        ),
+        FunctionDeclaration(
+            name = LOG_EARNING,
+            description = "Logs money the user says they earned into their earnings tracker. The user confirms first.",
+            parameters = obj(
+                mapOf(
+                    "source" to str("Where it came from, e.g. 'Fiverr logo gigs'"),
+                    "amount" to Schema(type = "NUMBER", description = "Amount earned in the tracker's currency, e.g. 45.5"),
+                    "hours" to Schema(type = "NUMBER", description = "Hours spent, if the user said"),
+                    "date" to str("YYYY-MM-DD if it wasn't today"),
+                    "note" to str("Optional note")
+                ),
+                listOf("source", "amount")
+            )
+        ),
+        readEarningsDeclaration
     )
 
     /** Tools for a chat turn. Web tools only when the user's Live web switch is on. */
@@ -172,14 +194,15 @@ object AgentTools {
 
     /** Tools for a background task: reading only, never acting. */
     fun forTask(webEnabled: Boolean, calendarReadable: Boolean): List<Tool>? {
-        val list = (if (webEnabled) webDeclarations else emptyList()) + (if (calendarReadable) listOf(readCalendarDeclaration) else emptyList())
+        val list = (if (webEnabled) webDeclarations else emptyList()) + (if (calendarReadable) listOf(readCalendarDeclaration) else emptyList()) +
+            readEarningsDeclaration
         return if (list.isEmpty()) null else listOf(Tool(functionDeclarations = list))
     }
 
     /** Tools that only show a card; the work happens on Confirm. */
     val CONFIRM_TOOLS = setOf(
         SET_REMINDER, SET_ALARM, SET_TIMER, ADD_CALENDAR_EVENT, DRAFT_TEXT, DRAFT_EMAIL,
-        OPEN_MAP, DIAL_NUMBER, OPEN_APP, SCHEDULE_TASK
+        OPEN_MAP, DIAL_NUMBER, OPEN_APP, SCHEDULE_TASK, LOG_EARNING
     )
 
     // ------------------------------------------------------------------ arguments
@@ -304,12 +327,31 @@ object AgentTools {
                 )
             }
         }
+        LOG_EARNING -> {
+            val source = string(args, "source")
+            val cents = string(args, "amount")?.let { com.example.income.EarningsMath.parseAmount(it) }
+            val hours = string(args, "hours")?.toDoubleOrNull()
+            val date = string(args, "date")
+            val dateMillis = date?.let { AgentTime.parseLocal(it, zone) }
+            when {
+                source == null -> Prepared.Invalid("Say where the money came from.")
+                cents == null -> Prepared.Invalid("'amount' must be a positive number like 45.50.")
+                hours != null && (hours <= 0 || hours > 1000) -> Prepared.Invalid("'hours' must be between 0 and 1000.")
+                date != null && dateMillis == null -> Prepared.Invalid("'date' must look like 2026-10-17.")
+                dateMillis != null && dateMillis > now + 24 * 60 * 60 * 1000L -> Prepared.Invalid("That date is in the future.")
+                else -> Prepared.Card(
+                    "Log ${"%.2f".format(java.util.Locale.US, cents / 100.0)} from $source",
+                    listOfNotNull(hours?.let { "${"%.1f".format(java.util.Locale.US, it)} h" }, dateMillis?.let { AgentTime.label(it).substringBeforeLast(',') }, string(args, "note")).joinToString(" · ")
+                )
+            }
+        }
         else -> Prepared.Invalid("Unknown tool $tool.")
     }
 
     fun normalizeRepeat(raw: String?): String = when (raw?.lowercase()?.trim()) {
         "weekdays", "weekday", "workdays" -> "weekdays"
         "once", "one time", "one-time", "none" -> "once"
+        "weekly", "sundays", "sunday", "every sunday" -> "sundays"
         else -> "daily"
     }
 

@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Message::class, Skill::class, MemoryItem::class, Project::class, Conversation::class,
-        AgentAction::class, Reminder::class, ScheduledTask::class, SavedOpportunity::class
+        AgentAction::class, Reminder::class, ScheduledTask::class, SavedOpportunity::class, Earning::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reminderDao(): ReminderDao
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun savedOpportunityDao(): SavedOpportunityDao
+    abstract fun earningDao(): EarningDao
 
     companion object {
         private const val DATABASE_NAME = "chat-database"
@@ -124,6 +125,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v8 adds the earnings tracker. */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `earnings` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`source` TEXT NOT NULL, " +
+                        "`amountCents` INTEGER NOT NULL, " +
+                        "`minutes` INTEGER, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`earnedAt` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -139,7 +156,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     // Versions before 4 never shipped schemas we can migrate from.
                     .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()

@@ -27,6 +27,7 @@ import com.example.data.clawearn.ClawEarnClient
 import com.example.data.clawearn.ClawEarnHealth
 import com.example.data.clawearn.ClawEarnTask
 import com.example.data.clawearn.ClawEarnTaskPage
+import com.example.income.Deliverables
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,7 +87,11 @@ class ClawEarnViewModel(application: Application) : AndroidViewModel(application
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClawEarnScreen(onClose: () -> Unit, viewModel: ClawEarnViewModel = viewModel()) {
+fun ClawEarnScreen(
+    onClose: () -> Unit,
+    onDraftWithKora: (String) -> Unit = {},
+    viewModel: ClawEarnViewModel = viewModel()
+) {
     val tab by viewModel.tab.collectAsStateWithLifecycle()
     val page by viewModel.page.collectAsStateWithLifecycle()
     val health by viewModel.health.collectAsStateWithLifecycle()
@@ -112,7 +117,7 @@ fun ClawEarnScreen(onClose: () -> Unit, viewModel: ClawEarnViewModel = viewModel
             if (isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 
             Text(
-                text = "This app only shows tasks. Taking or submitting a task requires a Base wallet and is not done in Kora.Ai.",
+                text = "Kora can draft the work for available tasks so you can check it. Claiming a task, submitting and getting paid happen with your own Base wallet, outside Kora.Ai.",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -182,11 +187,35 @@ fun ClawEarnScreen(onClose: () -> Unit, viewModel: ClawEarnViewModel = viewModel
         }
     }
 
-    selected?.let { task -> TaskDetailDialog(task = task, onDismiss = { selected = null }) }
+    selected?.let { task ->
+        TaskDetailDialog(
+            task = task,
+            onDismiss = { selected = null },
+            onDraft = if (task.status.equals("available", ignoreCase = true) || tab == "available") {
+                {
+                    selected = null
+                    val kind = Deliverables.kindOf(task.title, task.description, listOfNotNull(task.category)) ?: Deliverables.Kind.RESEARCH
+                    onDraftWithKora(
+                        Deliverables.draftPrompt(
+                            title = task.title,
+                            details = buildString {
+                                append(task.description)
+                                task.amountUsdc?.let { append("\nReward: %.2f USDC".format(it)) }
+                                task.category?.let { append("\nCategory: $it") }
+                            },
+                            source = "the Claw Earn board for AI agents (task ${task.taskId})",
+                            url = null,
+                            kind = kind
+                        )
+                    )
+                }
+            } else null
+        )
+    }
 }
 
 @Composable
-private fun TaskDetailDialog(task: ClawEarnTask, onDismiss: () -> Unit) {
+private fun TaskDetailDialog(task: ClawEarnTask, onDismiss: () -> Unit, onDraft: (() -> Unit)?) {
     val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -210,7 +239,10 @@ private fun TaskDetailDialog(task: ClawEarnTask, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            if (onDraft != null) TextButton(onClick = onDraft) { Text("Draft it with Kora") }
+            else TextButton(onClick = onDismiss) { Text("Close") }
+        },
         dismissButton = {
             TextButton(onClick = {
                 clipboard.setText(AnnotatedString("${task.contractAddress}:${task.taskId}"))

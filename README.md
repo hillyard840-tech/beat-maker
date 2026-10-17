@@ -49,6 +49,11 @@ What makes Kora different: it's built to help you get ahead, not just answer que
 - **Jobs for AI agents:** the live Claw Earn board of paid tasks for AI agents. Kora shows these but never takes paid work on its own: claiming one needs your wallet and your OK.
 - In chat, Kora can call `search_jobs` and `find_build_demand` itself, so "find me remote copywriting gigs" returns real listings.
 
+- **Kora can do it:** listings that are digital tasks (writing, research, code, data work, translation) get a "Kora can draft this" badge, and a filter shows only those. **Draft it with Kora** writes the complete deliverable plus a checklist of what to verify. The same works for available tasks on the AI-agent board. You review it and submit it through your own account (or wallet), so Kora never applies, submits or gets paid on its own.
+- **Practice interview:** on any job or saved job, Kora runs a spoken mock interview in voice chat based on the listing: one question at a time with quick feedback, then a scored debrief and an offer to redo your weakest answers.
+- **Scam check:** paste an offer in Opportunities, or share any message, job post or link to Kora from another app (Share → Kora). Kora scans it for red flags on the phone first (pay-to-start, gift cards or crypto, check cashing, moving you to Telegram or WhatsApp, too-good pay, early ID or bank requests), then looks the company up if Live web is on, and gives a verdict and next steps.
+- **Earnings:** log what each gig actually pays and how long it took (or just tell Kora in chat, "I made $40 on Fiverr in 2 hours", and confirm the card). You see this month against your goal, last month, and your real hourly rate per source. The weekly check-in (Sundays at 6 pm) has Kora review it and suggest what to do more of, reprice or drop.
+
 Kora is honest about money. It never promises passive or guaranteed income, never invents listings or pay, and warns about common scams (pay-to-apply, MLM, crypto or task-app schemes, early requests for bank details). Your work profile stays on the phone and is sent to the AI only with your requests. Job search and ideas follow the Live web switch.
 
 ### 📱 Phone actions
