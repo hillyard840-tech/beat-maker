@@ -28,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.Earning
 import com.example.data.SavedOpportunity
 import com.example.income.Idea
+import com.example.income.AgentBoards
 import com.example.income.Deliverables
 import com.example.income.EarningsMath
 import com.example.income.IdeaEngine
@@ -275,7 +276,7 @@ private fun LazyListScope.jobsTab(
         }
         items(shown, key = { it.url }) { job -> JobCard(job, onSave = { vm.saveJob(job) }, actions = actions, profile = profile) }
     }
-    item { AgentJobsCard(actions.openAgentJobs) }
+    agentBoardsSection(actions)
 }
 
 @Composable
@@ -355,9 +356,9 @@ private fun AgentJobsCard(onOpen: () -> Unit) {
             Icon(Icons.Default.SmartToy, contentDescription = null)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Jobs for AI agents", style = MaterialTheme.typography.titleSmall)
+                Text("Live Claw Earn tasks", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Live board of paid tasks for AI agents (Claw Earn). Kora can draft the work for you to check; claiming and getting paid needs your wallet and your OK.",
+                    "Browse open tasks inside Kora and tap one to have Kora draft the work for you to check.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -848,4 +849,106 @@ private fun EarningsSettingsDialog(currency: String, goalCents: Long, onDismiss:
         confirmButton = { TextButton(onClick = { onSave(code, goal) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+
+// ---------------------------------------------------------------- jobs for AI agents
+
+private fun LazyListScope.agentBoardsSection(actions: OpportunityActions) {
+    item {
+        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Jobs for AI agents", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Boards where AI agents take paid tasks. Kora can draft the work; claiming, staking and getting paid happen with your own wallet on each site.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            AgentBoardWarning()
+        }
+    }
+    item { AgentJobsCard(actions.openAgentJobs) }
+    item {
+        AgentBoardHeader(
+            title = "Escrow confirmed (${AgentBoards.escrowConfirmed.size})",
+            text = "Escrow is described in the board's own docs or open-source code, or reported by an independent outlet. Not audited on-chain, so still check before staking."
+        )
+    }
+    items(AgentBoards.escrowConfirmed, key = { "board_" + it.name }) { AgentBoardCard(it, actions) }
+    item {
+        AgentBoardHeader(
+            title = "Escrow not verified (${AgentBoards.notVerified.size})",
+            text = "Escrow is only claimed by listings, unclear, missing, or the board has reported payout problems. Treat as high risk."
+        )
+    }
+    items(AgentBoards.notVerified, key = { "board_" + it.name }) { AgentBoardCard(it, actions) }
+    item {
+        Text(
+            "Checked ${AgentBoards.CHECKED} from public sources. These boards change fast.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun AgentBoardWarning() {
+    val uri = LocalUriHandler.current
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Before you connect a wallet", style = MaterialTheme.typography.titleSmall)
+            }
+            Text(AgentBoards.WARNING, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            TextButton(onClick = { uri.safeOpen(AgentBoards.WARNING_SOURCE) }, contentPadding = PaddingValues(0.dp)) { Text("Source") }
+        }
+    }
+}
+
+@Composable
+private fun AgentBoardHeader(title: String, text: String) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AgentBoardCard(board: AgentBoards.Board, actions: OpportunityActions) {
+    val uri = LocalUriHandler.current
+    val confirmed = board.tier == AgentBoards.Tier.ESCROW_CONFIRMED
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (confirmed) Icons.Default.VerifiedUser else Icons.Default.GppMaybe,
+                    contentDescription = if (confirmed) "Escrow confirmed" else "Escrow not verified",
+                    tint = if (confirmed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(board.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                Text(board.chain, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp))
+            }
+            Text(board.summary, style = MaterialTheme.typography.bodySmall)
+            Text("Escrow: ${board.escrow}", style = MaterialTheme.typography.bodySmall)
+            Text(board.caveat, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow {
+                if (board.liveInApp) TextButton(onClick = actions.openAgentJobs) { Text("Live tasks in Kora") }
+                board.url?.let { url -> TextButton(onClick = { uri.safeOpen(url) }) { Text("Open site") } }
+                TextButton(onClick = { uri.safeOpen(board.sourceUrl) }) { Text(if (board.url == null) "Read about it" else "Source") }
+                TextButton(onClick = {
+                    actions.askKora(
+                        "I'm looking at ${board.name} (${board.url ?: board.sourceUrl}), a job board for AI agents. What I know: ${board.summary} ${board.escrow} ${board.caveat}\n" +
+                            "Check it for me with the web: is it active, does it really lock money in escrow before work starts, are there reports of real payouts or problems, and what would I risk by connecting a wallet or staking?"
+                    )
+                }) { Text("Check it with Kora") }
+            }
+        }
+    }
 }
