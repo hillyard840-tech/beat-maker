@@ -17,10 +17,10 @@ import androidx.compose.ui.unit.dp
 private data class Starter(val icon: ImageVector, val title: String, val prompt: String)
 
 private val STARTERS = listOf(
-    Starter(Icons.Default.School, "Explain simply", "Explain how ___ works as if I'm new to it, with one everyday example."),
-    Starter(Icons.Default.Mail, "Write an email", "Help me write a short, friendly email to ___ about ___."),
-    Starter(Icons.Default.EventNote, "Plan my week", "Help me plan my week. My priorities are: ___"),
-    Starter(Icons.Default.Code, "Review code", "Review this code for bugs and suggest improvements:\n\n```\n\n```")
+    Starter(Icons.Default.Work, "Find me work", "Find me remote jobs or gigs for someone who can ___. Show real listings with links."),
+    Starter(Icons.Default.Savings, "Side income", "I have about ___ hours a week and these skills: ___. What are realistic ways I could earn extra money?"),
+    Starter(Icons.Default.Construction, "What to build", "What's a small program I could build around ___ that people actually need and would pay for?"),
+    Starter(Icons.Default.EventNote, "Plan my week", "Help me plan my week. My priorities are: ___")
 )
 
 /** First screen of a new chat: what Kora can do, a few starters, and API-key setup if needed. */
@@ -30,7 +30,8 @@ fun EmptyChatState(
     hasApiKey: Boolean,
     onAddApiKey: () -> Unit,
     onStarter: (String) -> Unit,
-    onVoiceChat: () -> Unit
+    onVoiceChat: () -> Unit,
+    onOpportunities: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -51,10 +52,10 @@ fun EmptyChatState(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text("How can I help?", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Text("Let's get you ahead", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Ask anything, attach a photo or file, or talk to Kora with voice chat.",
+            "Kora finds real work, side income and things worth building, and still helps with everything else.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -99,10 +100,17 @@ fun EmptyChatState(
             Spacer(Modifier.height(12.dp))
         }
 
-        FilledTonalButton(onClick = onVoiceChat) {
-            Icon(Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Start voice chat")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onOpportunities) {
+                Icon(Icons.Default.Paid, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Opportunities")
+            }
+            FilledTonalButton(onClick = onVoiceChat) {
+                Icon(Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Voice chat")
+            }
         }
     }
 }

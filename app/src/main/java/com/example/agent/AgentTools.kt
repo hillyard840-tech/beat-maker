@@ -18,6 +18,8 @@ import java.util.TimeZone
 object AgentTools {
     const val SEARCH_WEB = "search_live_web"
     const val FETCH_WEBSITE = "fetch_website"
+    const val SEARCH_JOBS = "search_jobs"
+    const val FIND_BUILD_DEMAND = "find_build_demand"
     const val SET_REMINDER = "set_reminder"
     const val SET_ALARM = "set_alarm"
     const val SET_TIMER = "set_timer"
@@ -54,6 +56,22 @@ object AgentTools {
             name = FETCH_WEBSITE,
             description = "Connects directly to any live URL or website on the internet to fetch and read its current text content.",
             parameters = obj(mapOf("url" to str("The complete URL of the webpage to browse and read")), listOf("url"))
+        ),
+        FunctionDeclaration(
+            name = SEARCH_JOBS,
+            description = "Searches live remote job and gig listings on public job boards (Remotive, Jobicy, Arbeitnow). Returns real listings with links. Use it whenever the user wants work, gigs or freelance clients.",
+            parameters = obj(
+                mapOf(
+                    "query" to str("Skill or role to search for, e.g. 'kotlin', 'copywriter', 'data entry'"),
+                    "remote_only" to Schema(type = "BOOLEAN", description = "Only remote jobs. Default true.")
+                ),
+                listOf("query")
+            )
+        ),
+        FunctionDeclaration(
+            name = FIND_BUILD_DEMAND,
+            description = "Finds real recent Hacker News posts where people describe a problem or ask for a tool in an area. Use it to back up ideas for programs or products worth building.",
+            parameters = obj(mapOf("topic" to str("Area to look in, e.g. 'invoicing for freelancers'")), listOf("topic"))
         )
     )
 

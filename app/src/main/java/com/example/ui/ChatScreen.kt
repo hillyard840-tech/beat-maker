@@ -211,6 +211,7 @@ fun ChatScreen(
                     ToolAction.PROJECTS -> viewModel.showProjectsDialog.value = true
                     ToolAction.MEMORY -> viewModel.showMemoryDialog.value = true
                     ToolAction.REMINDERS -> viewModel.isRemindersOpen.value = true
+                    ToolAction.OPPORTUNITIES -> viewModel.isOpportunitiesOpen.value = true
                     ToolAction.MOLTBOOK -> onMoltbookClick()
                     ToolAction.CLAW_EARN -> onClawEarnClick()
                 }
@@ -288,7 +289,8 @@ fun ChatScreen(
                             onStarter = { prompt ->
                                 inputFieldState = TextFieldValue(prompt, selection = TextRange(prompt.length))
                             },
-                            onVoiceChat = { viewModel.startVoiceChat() }
+                            onVoiceChat = { viewModel.startVoiceChat() },
+                            onOpportunities = { viewModel.isOpportunitiesOpen.value = true }
                         )
                     }
                 }
@@ -585,6 +587,7 @@ private fun ChatTopBar(
                         if (memories.isEmpty()) "Memory" else "Memory (${memories.size})"
                     ) { showMenu = false; viewModel.showMemoryDialog.value = true }
                     MenuItem(Icons.Default.Insights, "Dashboard") { showMenu = false; onOpenDashboard() }
+                    MenuItem(Icons.Default.Paid, "Opportunities") { showMenu = false; viewModel.isOpportunitiesOpen.value = true }
                     MenuItem(Icons.Default.Alarm, "Reminders & tasks") { showMenu = false; viewModel.isRemindersOpen.value = true }
                     MenuItem(Icons.Default.Tune, "Background tasks") { showMenu = false; onOpenStatus() }
                     MenuItem(Icons.Default.Settings, "Settings") { showMenu = false; onOpenSettings() }

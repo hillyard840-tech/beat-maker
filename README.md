@@ -40,6 +40,17 @@ Uses an Imagen model that your API key has access to (found through the Gemini m
 ### ⚡ Models
 The model list comes from Gemini's `models.list` API for your key. The default is Google's `gemini-flash-lite-latest` alias. When a model is rate-limited, the app can retry with a lighter model that your key can use.
 
+### 💼 Opportunities: Kora's income co-pilot
+What makes Kora different: it's built to help you get ahead, not just answer questions. Open **Opportunities** from the ⋮ menu, Tools, the Dashboard or a new chat.
+- **Jobs:** live remote jobs and gigs from the free public boards Remotive, Jobicy and Arbeitnow. Every listing is real and links to the original post. Save it, track it (saved → applied → got it), or tap **Apply with Kora** for an honest fit check, a scam check and a tailored cover note. **Scout every weekday** sets up a scheduled task that searches for your skills each morning and notifies you.
+- **Side income:** ideas matched to your skills, weekly hours and budget, checked against live web results, with startup cost, time to first income, a realistic earnings range, first steps and risks.
+- **Build:** program ideas based on real Hacker News posts where people describe a problem or ask for a tool, with who pays, a suggested stack and an MVP feature list. Open a plan in Canvas or plan the build with Kora.
+- **My list:** everything you saved, with its status, and a one-tap "next step" chat.
+- **Jobs for AI agents:** the live Claw Earn board of paid tasks for AI agents. Kora shows these but never takes paid work on its own: claiming one needs your wallet and your OK.
+- In chat, Kora can call `search_jobs` and `find_build_demand` itself, so "find me remote copywriting gigs" returns real listings.
+
+Kora is honest about money. It never promises passive or guaranteed income, never invents listings or pay, and warns about common scams (pay-to-apply, MLM, crypto or task-app schemes, early requests for bank details). Your work profile stays on the phone and is sent to the AI only with your requests. Job search and ideas follow the Live web switch.
+
 ### 📱 Phone actions
 Ask in plain words and Kora can set reminders, alarms and timers, add calendar events, read your calendar, draft texts and emails, open Maps, the dialer or another app, and schedule tasks. Anything that changes something or leaves the app appears as a card in the chat and **only runs when you tap Confirm**; texts, emails and calls are drafted, never sent. Alarms and timers go to your clock app, events open in your calendar app ready to save. Permissions (notifications, calendar) are asked for only when an action first needs them.
 

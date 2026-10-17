@@ -55,7 +55,8 @@ class ScheduledTaskWorker(appContext: Context, params: WorkerParameters) : Corou
                 geminiModel = prefs.getString("selected_model", null).orEmpty(),
                 instruction = task.prompt,
                 useWeb = task.useWeb,
-                memories = if (prefs.getBoolean("memory_enabled", true)) db.memoryDao().allOnce().map { it.fact } else emptyList()
+                memories = if (prefs.getBoolean("memory_enabled", true)) db.memoryDao().allOnce().map { it.fact } else emptyList(),
+                profile = com.example.income.IncomeProfile.load(prefs).promptBlock()
             )
         } catch (e: CancellationException) {
             throw e

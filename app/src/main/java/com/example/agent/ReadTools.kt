@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import com.example.data.AppDatabase
+import com.example.income.JobBoards
 import com.example.util.AgentTime
 import com.example.util.LiveInternetService
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +105,10 @@ object ReadTools {
     suspend fun run(context: Context, name: String, args: Map<String, JsonElement>?, fallbackQuery: String = ""): String? = when (name) {
         AgentTools.SEARCH_WEB -> searchWeb(AgentTools.string(args, "query") ?: fallbackQuery)
         AgentTools.FETCH_WEBSITE -> fetchWebsite(AgentTools.string(args, "url").orEmpty())
+        AgentTools.SEARCH_JOBS -> JobBoards.describeForModel(
+            JobBoards.search(AgentTools.string(args, "query") ?: fallbackQuery, remoteOnly = AgentTools.string(args, "remote_only") != "false")
+        )
+        AgentTools.FIND_BUILD_DEMAND -> JobBoards.describeDemand(JobBoards.demandSignals(AgentTools.string(args, "topic") ?: fallbackQuery))
         AgentTools.READ_CALENDAR -> readCalendar(context, AgentTools.int(args, "days") ?: 1)
             ?: "Calendar access hasn't been granted. A card asking for it is shown to the user; tell them to tap Allow and then ask again."
         AgentTools.LIST_REMINDERS -> listRemindersAndTasks(context)

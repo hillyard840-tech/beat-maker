@@ -16,6 +16,7 @@ import com.example.ui.CanvasScreen
 import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
+import com.example.ui.OpportunitiesScreen
 import com.example.ui.RemindersScreen
 import com.example.ui.VoiceChatScreen
 import com.example.ui.clawearn.ClawEarnScreen
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 val isCanvasOpen by viewModel.isCanvasOpen.collectAsStateWithLifecycle()
                 val isVoiceModeOpen by viewModel.isVoiceModeOpen.collectAsStateWithLifecycle()
                 val isRemindersOpen by viewModel.isRemindersOpen.collectAsStateWithLifecycle()
+                val isOpportunitiesOpen by viewModel.isOpportunitiesOpen.collectAsStateWithLifecycle()
 
                 when {
                     isMoltbookOpen -> {
@@ -88,6 +90,24 @@ class MainActivity : ComponentActivity() {
                             onClose = { viewModel.closeCanvas() }
                         )
                     }
+                    isOpportunitiesOpen -> {
+                        OpportunitiesScreen(
+                            onBack = { viewModel.isOpportunitiesOpen.value = false },
+                            onAskKora = { prompt ->
+                                viewModel.isOpportunitiesOpen.value = false
+                                viewModel.newChat()
+                                viewModel.sendMessage(prompt, null)
+                            },
+                            onOpenCanvas = { title, markdown ->
+                                viewModel.isOpportunitiesOpen.value = false
+                                viewModel.openCanvas(title, markdown, "markdown")
+                            },
+                            onOpenAgentJobs = {
+                                viewModel.isOpportunitiesOpen.value = false
+                                viewModel.openClawEarn()
+                            }
+                        )
+                    }
                     isRemindersOpen -> {
                         RemindersScreen(
                             viewModel = viewModel,
@@ -101,6 +121,10 @@ class MainActivity : ComponentActivity() {
                             onOpenReminders = {
                                 showDashboard = false
                                 viewModel.isRemindersOpen.value = true
+                            },
+                            onOpenOpportunities = {
+                                showDashboard = false
+                                viewModel.isOpportunitiesOpen.value = true
                             },
                             onOpenClawEarn = {
                                 showDashboard = false

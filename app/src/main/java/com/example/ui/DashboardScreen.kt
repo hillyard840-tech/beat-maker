@@ -22,6 +22,7 @@ fun DashboardScreen(
     viewModel: ChatViewModel,
     onBack: () -> Unit,
     onOpenReminders: () -> Unit = {},
+    onOpenOpportunities: () -> Unit = {},
     onOpenClawEarn: () -> Unit = {},
     onOpenMoltbook: () -> Unit = {}
 ) {
@@ -91,6 +92,16 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
+
+            item {
+                IntegrationCard(
+                    emoji = "💼",
+                    title = "Opportunities",
+                    subtitle = "Live remote jobs, side-income ideas and programs worth building",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    onClick = onOpenOpportunities
+                )
             }
 
             // Real third-party integrations (live data, no local simulation)

@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Message::class, Skill::class, MemoryItem::class, Project::class, Conversation::class,
-        AgentAction::class, Reminder::class, ScheduledTask::class
+        AgentAction::class, Reminder::class, ScheduledTask::class, SavedOpportunity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun agentActionDao(): AgentActionDao
     abstract fun reminderDao(): ReminderDao
     abstract fun scheduledTaskDao(): ScheduledTaskDao
+    abstract fun savedOpportunityDao(): SavedOpportunityDao
 
     companion object {
         private const val DATABASE_NAME = "chat-database"
@@ -105,6 +106,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v7 adds saved jobs and ideas from Opportunities. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `opportunities` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`kind` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`subtitle` TEXT NOT NULL, " +
+                        "`url` TEXT, " +
+                        "`details` TEXT NOT NULL, " +
+                        "`status` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -120,7 +139,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     // Versions before 4 never shipped schemas we can migrate from.
                     .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()

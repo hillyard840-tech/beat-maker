@@ -22,7 +22,7 @@ import kotlinx.serialization.json.buildJsonObject
 object AgentRunner {
     private const val MAX_STEPS = 6
 
-    suspend fun run(context: Context, settings: LlmSettings, geminiModel: String, instruction: String, useWeb: Boolean, memories: List<String> = emptyList()): String {
+    suspend fun run(context: Context, settings: LlmSettings, geminiModel: String, instruction: String, useWeb: Boolean, memories: List<String> = emptyList(), profile: String = ""): String {
         val tools = AgentTools.forTask(useWeb, ReadTools.canReadCalendar(context))
         val system = Content(
             parts = listOf(
@@ -30,6 +30,7 @@ object AgentRunner {
                     text = listOfNotNull(
                         "You are Kora.Ai running a scheduled task for the user while they are away. Your answer is delivered as a notification and saved in a chat.",
                         "Current date and time: ${AgentTime.describeNow()}.",
+                        profile.trim().ifEmpty { null },
                         memories.takeIf { it.isNotEmpty() }?.joinToString("\n", prefix = "What the user asked you to remember about them:\n") { "• $it" },
                         if (useWeb) "Use your web tools for anything current (news, weather, prices); don't guess."
                         else "Web access is off for this task; say so if current information would be needed.",
@@ -40,14 +41,10 @@ object AgentRunner {
             )
         )
         val contents = mutableListOf(Content(role = "user", parts = listOf(Part(text = instruction))))
-        val models = if (settings.provider == LlmProvider.GEMINI) {
-            (listOf(geminiModel.ifBlank { ModelRegistry.DEFAULT_MODEL }) + ModelRegistry.ALIAS_FALLBACKS).distinct()
-        } else {
-            listOf("")
-        }
+        val models = modelsFor(settings, geminiModel)
 
         repeat(MAX_STEPS) {
-            val response = generate(settings, models, GenerateContentRequest(contents = contents, systemInstruction = system, tools = tools))
+            val response = generateWithFallback(settings, models, GenerateContentRequest(contents = contents, systemInstruction = system, tools = tools))
             val content = response.candidates.firstOrNull()?.content
             val parts = content?.parts.orEmpty()
             val calls = parts.mapNotNull { it.functionCall }
@@ -68,8 +65,16 @@ object AgentRunner {
         throw IllegalStateException("The task needed too many steps.")
     }
 
+    /** The chosen Gemini model, then the lighter fallbacks. OpenAI-compatible servers pick their own. */
+    fun modelsFor(settings: LlmSettings, geminiModel: String): List<String> =
+        if (settings.provider == LlmProvider.GEMINI) {
+            (listOf(geminiModel.ifBlank { ModelRegistry.DEFAULT_MODEL }) + ModelRegistry.ALIAS_FALLBACKS).distinct()
+        } else {
+            listOf("")
+        }
+
     /** Tries each Gemini model in turn when one is rate-limited or overloaded. */
-    private suspend fun generate(settings: LlmSettings, models: List<String>, request: GenerateContentRequest): GenerateContentResponse {
+    suspend fun generateWithFallback(settings: LlmSettings, models: List<String>, request: GenerateContentRequest): GenerateContentResponse {
         var last: Exception? = null
         for ((index, model) in models.withIndex()) {
             try {
