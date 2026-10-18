@@ -56,6 +56,15 @@ What makes Kora different: it's built to help you get ahead, not just answer que
 
 Kora is honest about money. It never promises passive or guaranteed income, never invents listings or pay, and warns about common scams (pay-to-apply, MLM, crypto or task-app schemes, early requests for bank details). Your work profile stays on the phone and is sent to the AI only with your requests. Job search and ideas follow the Live web switch.
 
+### 📈 Markets (Polymarket)
+Analysis and trade tickets for Polymarket prediction markets, using Polymarket's public APIs. No account, key or wallet connection is needed. Open it from the ⋮ menu, Tools or the Dashboard.
+- **Explore:** live markets by 24h volume, or search. Each market shows outcome probabilities, volume, liquidity, end date, a 7-day price chart and its resolution rules.
+- **Kora's estimate:** Kora reads fresh web results and gives its own probability next to the market's, with reasoning, key factors and sources. It's told to treat the market price as a strong baseline.
+- **Kora's record:** every estimate is saved and scored with the Brier score when the market resolves, so you can see whether Kora actually beats the market (most forecasters don't).
+- **Portfolio:** paste your *public* 0x wallet address to see open positions, value and P&L. Kora refuses anything that looks like a private key or seed phrase. **Daily watch** sets up a morning task that flags big moves, resolved positions and relevant news.
+- **Trade tickets:** pick an outcome and amount to see shares, payout if it wins, and the full amount you can lose. **Open in Polymarket** takes you to the market, where you place the order yourself. In chat, Kora can search markets (`polymarket_search`), read your positions (`polymarket_positions`) and prepare a ticket card (`polymarket_trade_ticket`) that only ever opens a polymarket.com link. **Kora never places trades.**
+- Everything here follows the Live web switch. Prediction markets are risky and not legal everywhere; this isn't financial advice.
+
 ### 📱 Phone actions
 Ask in plain words and Kora can set reminders, alarms and timers, add calendar events, read your calendar, draft texts and emails, open Maps, the dialer or another app, and schedule tasks. Anything that changes something or leaves the app appears as a card in the chat and **only runs when you tap Confirm**; texts, emails and calls are drafted, never sent. Alarms and timers go to your clock app, events open in your calendar app ready to save. Permissions (notifications, calendar) are asked for only when an action first needs them.
 

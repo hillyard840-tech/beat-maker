@@ -156,6 +156,10 @@ object PhoneActions {
                 )
                 Outcome(true, "Logged ${com.example.income.EarningsMath.format(cents, com.example.income.EarningsStore.currency(context))}")
             }
+            AgentTools.PM_TICKET -> {
+                val url = s("url")?.takeIf { com.example.markets.Polymarket.isPolymarketUrl(it) } ?: return Outcome(false, "Not a Polymarket link")
+                launch(context, Intent(Intent.ACTION_VIEW, Uri.parse(url)), "Opened in Polymarket. Place the order there if you still want it", "No app can open the link")
+            }
             else -> Outcome(false, "This action isn't supported")
         }
     }

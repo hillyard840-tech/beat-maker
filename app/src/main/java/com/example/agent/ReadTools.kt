@@ -113,6 +113,27 @@ object ReadTools {
             ?: "Calendar access hasn't been granted. A card asking for it is shown to the user; tell them to tap Allow and then ask again."
         AgentTools.LIST_REMINDERS -> listRemindersAndTasks(context)
         AgentTools.READ_EARNINGS -> com.example.income.EarningsStore.describe(context)
+        AgentTools.PM_SEARCH -> try {
+            val q = AgentTools.string(args, "query").orEmpty()
+            com.example.markets.Polymarket.describe(
+                if (q.isBlank()) com.example.markets.PolymarketClient.trending(10) else com.example.markets.PolymarketClient.search(q)
+            )
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            "Polymarket couldn't be reached right now."
+        }
+        AgentTools.PM_POSITIONS -> {
+            val wallet = com.example.markets.MarketsStore.wallet(context)
+            if (!com.example.markets.Polymarket.isWalletAddress(wallet)) {
+                "No Polymarket wallet address is saved. The user can add their public address under Markets → Portfolio (never a private key)."
+            } else try {
+                com.example.markets.Polymarket.describePositions(com.example.markets.PolymarketClient.positions(wallet)) + "\n" +
+                    com.example.markets.MarketsStore.describeRecord(context)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                "Polymarket couldn't be reached right now."
+            }
+        }
         else -> null
     }
 }

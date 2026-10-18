@@ -16,6 +16,7 @@ import com.example.ui.CanvasScreen
 import com.example.ui.ChatScreen
 import com.example.ui.ChatViewModel
 import com.example.ui.DashboardScreen
+import com.example.ui.MarketsScreen
 import com.example.ui.OpportunitiesScreen
 import com.example.ui.OpportunityActions
 import com.example.ui.RemindersScreen
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                 val isVoiceModeOpen by viewModel.isVoiceModeOpen.collectAsStateWithLifecycle()
                 val isRemindersOpen by viewModel.isRemindersOpen.collectAsStateWithLifecycle()
                 val isOpportunitiesOpen by viewModel.isOpportunitiesOpen.collectAsStateWithLifecycle()
+                val isMarketsOpen by viewModel.isMarketsOpen.collectAsStateWithLifecycle()
 
                 when {
                     isMoltbookOpen -> {
@@ -96,6 +98,12 @@ class MainActivity : ComponentActivity() {
                         CanvasScreen(
                             viewModel = viewModel,
                             onClose = { viewModel.closeCanvas() }
+                        )
+                    }
+                    isMarketsOpen -> {
+                        MarketsScreen(
+                            onBack = { viewModel.isMarketsOpen.value = false },
+                            onAskKora = { prompt -> viewModel.askInNewChat(prompt) }
                         )
                     }
                     isOpportunitiesOpen -> {
@@ -133,6 +141,10 @@ class MainActivity : ComponentActivity() {
                             onOpenOpportunities = {
                                 showDashboard = false
                                 viewModel.isOpportunitiesOpen.value = true
+                            },
+                            onOpenMarkets = {
+                                showDashboard = false
+                                viewModel.isMarketsOpen.value = true
                             },
                             onOpenClawEarn = {
                                 showDashboard = false

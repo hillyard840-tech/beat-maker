@@ -33,6 +33,9 @@ object AgentTools {
     const val SCHEDULE_TASK = "schedule_task"
     const val LIST_REMINDERS = "list_reminders_and_tasks"
     const val LOG_EARNING = "log_earning"
+    const val PM_SEARCH = "polymarket_search"
+    const val PM_POSITIONS = "polymarket_positions"
+    const val PM_TICKET = "polymarket_trade_ticket"
     const val READ_EARNINGS = "read_earnings"
 
     /** Not a model tool: the card that asks for calendar access when read_calendar can't run. */
@@ -81,6 +84,35 @@ object AgentTools {
         name = READ_CALENDAR,
         description = "Reads the user's upcoming calendar events from the phone. Use it for questions about their schedule.",
         parameters = obj(mapOf("days" to int("How many days ahead to read, 1 to 14. Default 1 (today).")))
+    )
+
+    /** Polymarket reading tools: they call Polymarket's public APIs, so they follow the Live web switch. */
+    val marketReadDeclarations = listOf(
+        FunctionDeclaration(
+            name = PM_SEARCH,
+            description = "Searches live Polymarket prediction markets (or the top markets by 24h volume when the query is empty). Returns questions, outcome probabilities, volume, end dates, slugs and links.",
+            parameters = obj(mapOf("query" to str("Topic to search, e.g. 'fed rate cut' or 'world cup'. Empty for trending.")))
+        ),
+        FunctionDeclaration(
+            name = PM_POSITIONS,
+            description = "Reads the user's open Polymarket positions (from the public wallet address they saved in Kora) with value and profit/loss, plus Kora's prediction track record."
+        )
+    )
+
+    val marketTicketDeclaration = FunctionDeclaration(
+        name = PM_TICKET,
+        description = "Prepares a Polymarket trade ticket the user reviews. Kora never places trades: on Confirm it opens the market in Polymarket where the user places the order themselves.",
+        parameters = obj(
+            mapOf(
+                "question" to str("The market question"),
+                "url" to str("The market's polymarket.com link, copied exactly from polymarket_search"),
+                "outcome" to str("Outcome to buy, e.g. Yes or No"),
+                "price" to Schema(type = "NUMBER", description = "Current price of that outcome, 0.01-0.99"),
+                "amount" to Schema(type = "NUMBER", description = "Dollars to spend, as the user said"),
+                "reason" to str("One line on why, including that it's a risk")
+            ),
+            listOf("question", "url", "outcome", "price", "amount")
+        )
     )
 
     val readEarningsDeclaration = FunctionDeclaration(
@@ -190,11 +222,16 @@ object AgentTools {
 
     /** Tools for a chat turn. Web tools only when the user's Live web switch is on. */
     fun forChat(webEnabled: Boolean): List<Tool> =
-        listOf(Tool(functionDeclarations = (if (webEnabled) webDeclarations else emptyList()) + phoneDeclarations))
+        listOf(
+            Tool(
+                functionDeclarations = (if (webEnabled) webDeclarations + marketReadDeclarations + marketTicketDeclaration else emptyList()) +
+                    phoneDeclarations
+            )
+        )
 
     /** Tools for a background task: reading only, never acting. */
     fun forTask(webEnabled: Boolean, calendarReadable: Boolean): List<Tool>? {
-        val list = (if (webEnabled) webDeclarations else emptyList()) + (if (calendarReadable) listOf(readCalendarDeclaration) else emptyList()) +
+        val list = (if (webEnabled) webDeclarations + marketReadDeclarations else emptyList()) + (if (calendarReadable) listOf(readCalendarDeclaration) else emptyList()) +
             readEarningsDeclaration
         return if (list.isEmpty()) null else listOf(Tool(functionDeclarations = list))
     }
@@ -202,7 +239,7 @@ object AgentTools {
     /** Tools that only show a card; the work happens on Confirm. */
     val CONFIRM_TOOLS = setOf(
         SET_REMINDER, SET_ALARM, SET_TIMER, ADD_CALENDAR_EVENT, DRAFT_TEXT, DRAFT_EMAIL,
-        OPEN_MAP, DIAL_NUMBER, OPEN_APP, SCHEDULE_TASK, LOG_EARNING
+        OPEN_MAP, DIAL_NUMBER, OPEN_APP, SCHEDULE_TASK, LOG_EARNING, PM_TICKET
     )
 
     // ------------------------------------------------------------------ arguments
@@ -342,6 +379,25 @@ object AgentTools {
                 else -> Prepared.Card(
                     "Log ${"%.2f".format(java.util.Locale.US, cents / 100.0)} from $source",
                     listOfNotNull(hours?.let { "${"%.1f".format(java.util.Locale.US, it)} h" }, dateMillis?.let { AgentTime.label(it).substringBeforeLast(',') }, string(args, "note")).joinToString(" · ")
+                )
+            }
+        }
+        PM_TICKET -> {
+            val url = string(args, "url")
+            val outcome = string(args, "outcome")
+            val price = string(args, "price")?.toDoubleOrNull()
+            val amount = string(args, "amount")?.toDoubleOrNull()
+            val ticket = if (outcome != null && price != null && amount != null) com.example.markets.MarketMath.ticket(outcome, price, amount) else null
+            when {
+                url == null || !com.example.markets.Polymarket.isPolymarketUrl(url) -> Prepared.Invalid("Use the market's polymarket.com link from polymarket_search.")
+                outcome == null || price == null || amount == null -> Prepared.Invalid("A ticket needs the outcome, its price and the amount.")
+                price !in 0.01..0.99 -> Prepared.Invalid("'price' must be between 0.01 and 0.99.")
+                amount !in 1.0..10_000.0 -> Prepared.Invalid("'amount' must be between 1 and 10000 dollars.")
+                ticket == null -> Prepared.Invalid("Those numbers don't make a valid ticket.")
+                else -> Prepared.Card(
+                    "Trade ticket: $outcome on \"${string(args, "question") ?: "this market"}\"",
+                    com.example.markets.MarketMath.describeTicket(ticket) + (string(args, "reason")?.let { "\nWhy: $it" } ?: "") +
+                        "\nConfirm opens Polymarket; you place the order there. Kora doesn't trade for you."
                 )
             }
         }

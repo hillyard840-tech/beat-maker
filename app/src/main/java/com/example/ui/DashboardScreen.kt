@@ -23,6 +23,7 @@ fun DashboardScreen(
     onBack: () -> Unit,
     onOpenReminders: () -> Unit = {},
     onOpenOpportunities: () -> Unit = {},
+    onOpenMarkets: () -> Unit = {},
     onOpenClawEarn: () -> Unit = {},
     onOpenMoltbook: () -> Unit = {}
 ) {
@@ -101,6 +102,16 @@ fun DashboardScreen(
                     subtitle = "Live remote jobs, side-income ideas and programs worth building",
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     onClick = onOpenOpportunities
+                )
+            }
+
+            item {
+                IntegrationCard(
+                    emoji = "📈",
+                    title = "Markets",
+                    subtitle = "Polymarket odds, your positions and Kora's prediction record",
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    onClick = onOpenMarkets
                 )
             }
 

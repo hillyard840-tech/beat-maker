@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Message::class, Skill::class, MemoryItem::class, Project::class, Conversation::class,
-        AgentAction::class, Reminder::class, ScheduledTask::class, SavedOpportunity::class, Earning::class
+        AgentAction::class, Reminder::class, ScheduledTask::class, SavedOpportunity::class, Earning::class, Prediction::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun savedOpportunityDao(): SavedOpportunityDao
     abstract fun earningDao(): EarningDao
+    abstract fun predictionDao(): PredictionDao
 
     companion object {
         private const val DATABASE_NAME = "chat-database"
@@ -141,6 +142,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v9 adds Kora's market predictions and their results. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `predictions` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`marketSlug` TEXT NOT NULL, " +
+                        "`eventSlug` TEXT, " +
+                        "`question` TEXT NOT NULL, " +
+                        "`outcome` TEXT NOT NULL, " +
+                        "`marketProbability` REAL NOT NULL, " +
+                        "`koraProbability` REAL NOT NULL, " +
+                        "`confidence` TEXT NOT NULL, " +
+                        "`reasoning` TEXT NOT NULL, " +
+                        "`endDate` INTEGER, " +
+                        "`happened` INTEGER, " +
+                        "`resolvedAt` INTEGER, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -156,7 +179,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     // Versions before 4 never shipped schemas we can migrate from.
                     .fallbackToDestructiveMigrationFrom(1, 2, 3)
                     .build()

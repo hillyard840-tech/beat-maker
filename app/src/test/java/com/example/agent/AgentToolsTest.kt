@@ -121,4 +121,22 @@ class AgentToolsTest {
         val names = AgentTools.forTask(webEnabled = false, calendarReadable = false)!!.flatMap { it.functionDeclarations.orEmpty() }.map { it.name }
         assertEquals(listOf(AgentTools.READ_EARNINGS), names)
     }
+
+    @Test
+    fun `trade ticket only opens polymarket and has sane bounds`() {
+        val ok = prepare(AgentTools.PM_TICKET, "question" to "Rain?", "url" to "https://polymarket.com/event/nyc-weather/rain-nyc", "outcome" to "Yes", "price" to 0.53, "amount" to 20)
+        assertTrue(ok is AgentTools.Prepared.Card)
+        assertTrue((ok as AgentTools.Prepared.Card).details.contains("Kora doesn't trade for you"))
+        assertTrue(prepare(AgentTools.PM_TICKET, "url" to "https://evil.example/x", "outcome" to "Yes", "price" to 0.5, "amount" to 5) is AgentTools.Prepared.Invalid)
+        assertTrue(prepare(AgentTools.PM_TICKET, "url" to "https://polymarket.com/event/x", "outcome" to "Yes", "price" to 0.5, "amount" to 50_000) is AgentTools.Prepared.Invalid)
+        assertTrue(prepare(AgentTools.PM_TICKET, "url" to "https://polymarket.com/event/x", "outcome" to "Yes", "price" to 1.2, "amount" to 5) is AgentTools.Prepared.Invalid)
+    }
+
+    @Test
+    fun `market tools follow the web switch`() {
+        val off = AgentTools.forChat(webEnabled = false).flatMap { it.functionDeclarations.orEmpty() }.map { it.name }
+        assertTrue(AgentTools.PM_SEARCH !in off && AgentTools.PM_TICKET !in off)
+        val task = AgentTools.forTask(webEnabled = true, calendarReadable = false)!!.flatMap { it.functionDeclarations.orEmpty() }.map { it.name }
+        assertTrue(AgentTools.PM_POSITIONS in task && AgentTools.PM_TICKET !in task)
+    }
 }
