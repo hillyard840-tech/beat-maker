@@ -1,0 +1,2 @@
+order_number,email,postcode,order_date,status,carrier,tracking_url,estimated_delivery,items
+EXAMPLE-1001,customer@example.com,90210,2026-10-01,shipped,UPS,https://www.ups.com/track?tracknum=EXAMPLE,2026-10-05,"1x Example product"

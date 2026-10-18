@@ -1,0 +1,21 @@
+// Talk to this agent privately from your phone through your own Telegram bot.
+// 1. Create a bot with @BotFather and copy its token.
+// 2. export TELEGRAM_BOT_TOKEN=123456:ABC...
+// 3. Replace 123456789 below with your numeric Telegram user id
+//    (message @userinfobot to get it).
+// 4. openclaw config patch --file ./config/openclaw.telegram.patch.json5 --dry-run
+//    then run it again without --dry-run.
+{
+  channels: {
+    telegram: {
+      botToken: "${TELEGRAM_BOT_TOKEN}",
+      // Only you can talk to this agent.
+      dmPolicy: "allowlist",
+      allowFrom: ["123456789"],
+      groupPolicy: "disabled",
+    },
+  },
+  bindings: [
+    { agentId: "client-desk", match: { channel: "telegram", accountId: "default" } },
+  ],
+}

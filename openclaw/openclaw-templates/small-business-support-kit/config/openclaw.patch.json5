@@ -1,0 +1,39 @@
+// Merge into ~/.openclaw/openclaw.json with:
+//   openclaw config patch --file ./config/openclaw.patch.json5 --dry-run
+//   openclaw config patch --file ./config/openclaw.patch.json5
+// Replace +15551234567 with the owner's own WhatsApp number (E.164 format).
+{
+  // Each customer gets their own private conversation. Without this,
+  // customers who message the same number would share context.
+  session: { dmScope: "per-channel-peer" },
+
+  channels: {
+    whatsapp: {
+      // Public business line: anyone can message. "open" requires "*".
+      dmPolicy: "open",
+      allowFrom: ["*"],
+      // The support agent does not join group chats.
+      groupPolicy: "disabled",
+    },
+  },
+
+  // Route the WhatsApp line to the Front Desk agent.
+  bindings: [
+    { agentId: "front-desk", match: { channel: "whatsapp", accountId: "default" } },
+  ],
+
+  agents: {
+    entries: {
+      "front-desk": {
+        tools: {
+          toolsBySender: {
+            // The owner keeps full use of this agent's tools.
+            "e164:+15551234567": {},
+            // Customers can't edit files or schedules.
+            "*": { deny: ["write", "edit", "apply_patch", "cron", "automations"] },
+          },
+        },
+      },
+    },
+  },
+}

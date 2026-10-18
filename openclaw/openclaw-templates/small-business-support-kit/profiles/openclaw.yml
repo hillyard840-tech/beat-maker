@@ -1,0 +1,31 @@
+schemaVersion: 1
+agent:
+  model:
+    primary: anthropic/claude-haiku-5-5
+    fallbacks:
+      - anthropic/claude-sonnet-5-5
+  tools:
+    allow:
+      - read
+      - write
+      - edit
+      - memory_search
+      - memory_get
+      - message
+      - cron
+    deny:
+      - exec
+      - process
+      - code_execution
+      - browser
+      - web_fetch
+      - web_search
+      - apply_patch
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: false
+      sources:
+        - memory

@@ -1,0 +1,2 @@
+invoice_number,client_id,project_id,amount,currency,issue_date,due_date,status,last_reminder_date,reminder_count
+EXAMPLE-INV-001,EXAMPLE-C1,EXAMPLE-P1,1500,USD,2026-10-01,2026-10-15,sent,,0

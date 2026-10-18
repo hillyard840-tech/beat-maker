@@ -1,0 +1,2 @@
+project_id,client_id,project_name,status,start_date,deadline,next_milestone,next_milestone_date,last_update_sent,update_cadence
+EXAMPLE-P1,EXAMPLE-C1,Example website redesign,active,2026-10-01,2026-11-15,First design draft,2026-10-24,2026-10-10,weekly

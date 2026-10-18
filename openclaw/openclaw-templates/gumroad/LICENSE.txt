@@ -1,0 +1,34 @@
+OPENCLAW AGENT TEMPLATE LICENSE (Single Business)
+
+Copyright (c) 2026 [SELLER NAME]. All rights reserved.
+
+This license applies to the OpenClaw agent template you purchased (the "Template"): its agent package, skills, prompts, workspace files, configuration files and setup guide.
+
+1. What you may do
+   - Install and use the Template for one business (your own, or one client business if you bought it on that client's behalf), on as many of that business's computers or servers as it needs.
+   - Change, extend and customise the Template for that business.
+   - Keep using any version you received, even if you don't buy later updates.
+
+2. What you may not do
+   - Resell, share, give away, sublicense or redistribute the Template or any part of it, whether changed or unchanged, including as part of another template, product, course or marketplace listing.
+   - Install it for more than one business per license. Agencies and consultants installing it for clients need one license per client business.
+   - Remove this license file or claim the Template as your own work.
+   Any part of the Template that the seller also publishes separately under an open license (for example, a free skill on ClawHub) stays available under that open license too.
+
+3. Updates
+   Updates published by the seller during the 12 months after purchase are included at no extra cost.
+
+4. Your responsibilities
+   - You are responsible for your OpenClaw installation, your model provider accounts and costs, your messaging accounts (such as WhatsApp or Telegram) and how you use them, and complying with the laws and platform rules that apply to you, including privacy, consumer-protection and messaging rules.
+   - AI agents can make mistakes. Review the Template's outputs before relying on them. Contract reviews and similar outputs are not legal, financial or professional advice.
+
+5. No warranty
+   THE TEMPLATE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING FITNESS FOR A PARTICULAR PURPOSE. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SELLER IS NOT LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THE TEMPLATE. THE SELLER'S TOTAL LIABILITY IS LIMITED TO THE AMOUNT YOU PAID FOR IT.
+
+6. Not affiliated
+   This Template is an independent product. It is not made, endorsed or supported by the OpenClaw project, ClawHub, Anthropic, OpenAI, Meta (WhatsApp) or Telegram. Product names belong to their owners.
+
+7. Ending the license
+   This license ends automatically if you break it. When it ends, you must stop using and delete the Template.
+
+Questions: [SELLER EMAIL]
