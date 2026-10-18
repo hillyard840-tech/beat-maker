@@ -1,0 +1,9 @@
+{
+  "name": "content-creator-suite",
+  "version": "1.0.0",
+  "description": "A content strategist agent for OpenClaw: blog outlines, social captions, SEO keyword research and a weekly content calendar, all in your brand voice.",
+  "type": "module",
+  "openclaw": {
+    "claw": "CLAW.md"
+  }
+}

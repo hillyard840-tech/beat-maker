@@ -1,0 +1,30 @@
+schemaVersion: 1
+agent:
+  model:
+    primary: anthropic/claude-sonnet-5-5
+    fallbacks:
+      - openai/gpt-5.5
+  tools:
+    allow:
+      - read
+      - write
+      - edit
+      - web_search
+      - web_fetch
+      - memory_search
+      - memory_get
+      - cron
+    deny:
+      - exec
+      - process
+      - code_execution
+      - browser
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: true
+      sources:
+        - memory
+        - sessions

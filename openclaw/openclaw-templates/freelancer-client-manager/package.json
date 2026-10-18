@@ -1,0 +1,9 @@
+{
+  "name": "freelancer-client-manager",
+  "version": "1.0.0",
+  "description": "A client operations agent for freelancers on OpenClaw: proposals, invoice follow-ups, project updates, client emails, contract review and meeting notes.",
+  "type": "module",
+  "openclaw": {
+    "claw": "CLAW.md"
+  }
+}

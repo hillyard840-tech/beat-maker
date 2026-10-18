@@ -1,0 +1,31 @@
+// Alternative: run the Front Desk on a Telegram bot instead of WhatsApp.
+// Create a bot with @BotFather, then store the token as an env var:
+//   export TELEGRAM_BOT_TOKEN=123456:ABC...
+//   openclaw config patch --file ./config/openclaw.telegram.patch.json5
+// Replace 123456789 with the owner's numeric Telegram user id.
+{
+  session: { dmScope: "per-channel-peer" },
+  channels: {
+    telegram: {
+      botToken: "${TELEGRAM_BOT_TOKEN}",
+      dmPolicy: "open",
+      allowFrom: ["*"],
+      groupPolicy: "disabled",
+    },
+  },
+  bindings: [
+    { agentId: "front-desk", match: { channel: "telegram", accountId: "default" } },
+  ],
+  agents: {
+    entries: {
+      "front-desk": {
+        tools: {
+          toolsBySender: {
+            "channel:telegram:123456789": {},
+            "*": { deny: ["write", "edit", "apply_patch", "cron", "automations"] },
+          },
+        },
+      },
+    },
+  },
+}

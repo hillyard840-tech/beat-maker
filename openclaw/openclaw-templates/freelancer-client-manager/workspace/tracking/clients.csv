@@ -1,0 +1,2 @@
+client_id,client_name,contact_name,contact_email,channel,timezone,notes
+EXAMPLE-C1,Example Client Ltd,Alex Example,alex@example.com,email,America/New_York,Example row: delete during setup

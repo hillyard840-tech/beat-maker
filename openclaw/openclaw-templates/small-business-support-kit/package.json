@@ -1,0 +1,9 @@
+{
+  "name": "small-business-support-kit",
+  "version": "1.0.0",
+  "description": "A front-desk customer service agent for OpenClaw: answers FAQs, checks order status, handles complaints with clean escalation, and drafts review responses.",
+  "type": "module",
+  "openclaw": {
+    "claw": "CLAW.md"
+  }
+}
